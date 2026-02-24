@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "async-python-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "e6bbd64217595e7235d9b064aa1613ff331f8518e09a4cf65d8d9a0e266e2717"
+    },
+    "python-design-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "b70500bae0d16740d8a359be63c4645a0ab0f9b839d11d181c45d20958313698"
+    },
+    "python-performance-optimization": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "a25abb5b2d224eee9d572b09fa13937a45831c5de1560c41c3f739e6630b7380"
+    },
+    "python-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "a2cc64d28bbda77aeac8ec634ae38102a3b8d2314f3aa802811a44281c5d7838"
+    }
+  }
+}
