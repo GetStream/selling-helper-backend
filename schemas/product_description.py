@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import AnyUrl, BaseModel, Field
 
 
 class ProductDescription(BaseModel):
@@ -18,7 +18,8 @@ class ProductDescription(BaseModel):
     search_facts: list[str] = Field(default_factory=list, max_length=20)
     confidence: float = Field(ge=0.0, le=1.0)
     source_image_path: str | None = None
-    polished_image_url: HttpUrl | None = None
+    polished_image_url: AnyUrl | None = None
+    polished_image_path: str | None = None
 
 
 def build_product_description(
@@ -33,6 +34,7 @@ def build_product_description(
     confidence: float,
     source_image_path: str | None = None,
     polished_image_url: str | None = None,
+    polished_image_path: str | None = None,
 ) -> ProductDescription:
     """Factory helper to keep description creation explicit and validated."""
     return ProductDescription(
@@ -46,5 +48,6 @@ def build_product_description(
         confidence=confidence,
         source_image_path=source_image_path,
         polished_image_url=polished_image_url,
+        polished_image_path=polished_image_path,
     )
 

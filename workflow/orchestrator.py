@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlparse
 
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
@@ -122,7 +125,31 @@ class TaskWorkflowOrchestrator:
             timeout=45.0,
         )
         self._artifacts.polished_image_url = result.image_url
+
+        saved_path = await self._save_polished_image(result.image_url)
+        self._artifacts.polished_image_path = str(saved_path)
         await self._emit(TaskId.POLISH_IMAGE, 100, "Polished product image created")
+
+    async def _save_polished_image(self, image_url: str) -> Path:
+        """Download or copy the polished image to the artifacts directory."""
+        output_dir = self._config.screenshot_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "polished_product.png"
+
+        parsed = urlparse(image_url)
+        if parsed.scheme == "file":
+            source = Path(parsed.path)
+            await asyncio.to_thread(shutil.copy2, source, output_path)
+        elif parsed.scheme in ("http", "https"):
+            await asyncio.to_thread(urllib.request.urlretrieve, image_url, output_path)
+        else:
+            source = Path(image_url)
+            if source.exists():
+                await asyncio.to_thread(shutil.copy2, source, output_path)
+            else:
+                raise ValueError(f"Unsupported image URL scheme: {parsed.scheme!r}")
+
+        return output_path
 
     async def _research_step(self) -> None:
         await self._emit(TaskId.RESEARCH_PRODUCT, 0, "Researching product information")
@@ -158,6 +185,7 @@ class TaskWorkflowOrchestrator:
             confidence=0.75 if facts else 0.55,
             source_image_path=self._artifacts.source_image_path,
             polished_image_url=self._artifacts.polished_image_url,
+            polished_image_path=self._artifacts.polished_image_path,
         )
         await self._emit(TaskId.GENERATE_DESCRIPTION, 100, "Structured description ready")
         return description

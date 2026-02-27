@@ -41,6 +41,7 @@ class WorkflowArtifacts:
 
     source_image_path: str | None = None
     polished_image_url: str | None = None
+    polished_image_path: str | None = None
     product_search_facts: list[str] = field(default_factory=list)
     product_search_summary: str | None = None
 
