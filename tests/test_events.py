@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from workflow.events import TaskProgressEmitter
+from workflow.events import TaskProgressEmitter, TaskProgressEvent
 from workflow.models import TaskId, TaskProgress
 
 
@@ -13,11 +13,11 @@ class FakeEventBus:
         self.registered: list[type] = []
         self.events: list[object] = []
 
-    def register(self, event_type: type) -> None:
-        self.registered.append(event_type)
+    def register(self, *event_classes, ignore_not_compatible: bool = False) -> None:
+        self.registered.extend(event_classes)
 
-    async def emit(self, event: object) -> None:
-        self.events.append(event)
+    def send(self, *events: object) -> None:
+        self.events.extend(events)
 
 
 @pytest.mark.asyncio
@@ -34,11 +34,16 @@ async def test_progress_event_contract_shape() -> None:
     )
 
     assert payload["type"] == "task.progress"
-    assert payload["payload"] == {
-        "taskId": "detect-object",
-        "progress": 45,
-        "message": "Analyzing frames",
-    }
+    assert payload["taskId"] == "detect-object"
+    assert payload["progress"] == 45
+    assert payload["message"] == "Analyzing frames"
+    assert payload["state"] == "running"
     assert len(bus.events) == 1
     assert bus.registered
+
+    event = bus.events[0]
+    assert isinstance(event, TaskProgressEvent)
+    assert event.type == "task.progress"
+    assert event.task_id == "detect-object"
+    assert event.progress == 45
 

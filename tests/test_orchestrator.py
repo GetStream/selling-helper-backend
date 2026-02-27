@@ -24,11 +24,11 @@ class FakeEventBus:
     def __init__(self) -> None:
         self.events: list[object] = []
 
-    def register(self, _event_type: type) -> None:
+    def register(self, *event_classes, ignore_not_compatible: bool = False) -> None:
         return None
 
-    async def emit(self, event: object) -> None:
-        self.events.append(event)
+    def send(self, *events: object) -> None:
+        self.events.extend(events)
 
 
 class FakeCaptureProcessor:

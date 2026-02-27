@@ -8,7 +8,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
@@ -138,7 +138,15 @@ class TaskWorkflowOrchestrator:
 
         parsed = urlparse(image_url)
         if parsed.scheme == "file":
-            source = Path(parsed.path)
+            # Handle both canonical file URIs (file:///abs/path) and legacy malformed
+            # relative variants (file://artifacts/source.png).
+            if parsed.netloc:
+                source = Path(unquote(parsed.netloc)) / unquote(parsed.path.lstrip("/"))
+            else:
+                source = Path(unquote(parsed.path))
+            source = source.resolve()
+            if not source.exists():
+                raise FileNotFoundError(f"Polished image source not found: {source}")
             await asyncio.to_thread(shutil.copy2, source, output_path)
         elif parsed.scheme in ("http", "https"):
             await asyncio.to_thread(urllib.request.urlretrieve, image_url, output_path)

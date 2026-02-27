@@ -5,19 +5,28 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from vision_agents.core.events import BaseEvent
+
 from workflow.models import TaskProgress
 
 
-@dataclass(slots=True)
-class TaskProgressEvent:
-    """Event payload aligned with frontend contract."""
+@dataclass
+class TaskProgressEvent(BaseEvent):
+    """Event payload aligned with frontend contract.
 
-    type: str = "task.progress"
-    payload: dict[str, Any] = field(default_factory=dict)
+    Extends BaseEvent so it participates in the Vision Agents EventManager
+    lifecycle (register / subscribe / send).
+    """
+
+    type: str = field(default="task.progress", init=False)
+    task_id: str = ""
+    progress: int = 0
+    message: str = ""
+    state: str = "running"
 
 
 class TaskProgressEmitter:
-    """Emit `task.progress` events through the agent event bus."""
+    """Emit ``task.progress`` events through the agent EventManager."""
 
     def __init__(self, event_bus: Any | None) -> None:
         self._event_bus = event_bus
@@ -33,16 +42,23 @@ class TaskProgressEmitter:
 
     async def emit(self, update: TaskProgress) -> dict[str, Any]:
         """Emit a progress update and return the serialized payload."""
-        payload = {
-            "taskId": update.task_id.value,
-            "progress": update.progress,
-            "message": update.message,
-        }
-        event = TaskProgressEvent(payload=payload)
+        event = TaskProgressEvent(
+            task_id=update.task_id.value,
+            progress=update.progress,
+            message=update.message,
+            state=update.state.value,
+        )
 
         self._ensure_registered()
-        emit = getattr(self._event_bus, "emit", None)
-        if callable(emit):
-            await emit(event)
-        return {"type": event.type, "payload": payload}
+        send = getattr(self._event_bus, "send", None)
+        if callable(send):
+            send(event)
+
+        return {
+            "type": event.type,
+            "taskId": event.task_id,
+            "progress": event.progress,
+            "message": event.message,
+            "state": event.state,
+        }
 
