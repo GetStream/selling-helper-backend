@@ -126,15 +126,34 @@ class TaskWorkflowOrchestrator:
         )
         self._artifacts.polished_image_url = result.image_url
 
-        saved_path = await self._save_polished_image(result.image_url)
+        saved_path = await self._save_polished_image(
+            image_url=result.image_url or None,
+            image_bytes=result.image_bytes,
+            image_mime_type=result.image_mime_type,
+        )
+        if not self._artifacts.polished_image_url:
+            self._artifacts.polished_image_url = saved_path.resolve().as_uri()
         self._artifacts.polished_image_path = str(saved_path)
         await self._emit(TaskId.POLISH_IMAGE, 100, "Polished product image created")
 
-    async def _save_polished_image(self, image_url: str) -> Path:
-        """Download or copy the polished image to the artifacts directory."""
+    async def _save_polished_image(
+        self,
+        *,
+        image_url: str | None = None,
+        image_bytes: bytes | None = None,
+        image_mime_type: str | None = None,
+    ) -> Path:
+        """Download/copy/write the polished image to the artifacts directory."""
         output_dir = self._config.screenshot_dir
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / "polished_product.png"
+        output_path = output_dir / f"polished_product{_extension_for_mime(image_mime_type)}"
+
+        if image_bytes:
+            await asyncio.to_thread(output_path.write_bytes, image_bytes)
+            return output_path
+
+        if not image_url:
+            raise ValueError("Polished image is missing both URL and inline bytes.")
 
         parsed = urlparse(image_url)
         if parsed.scheme == "file":
@@ -197,4 +216,14 @@ class TaskWorkflowOrchestrator:
         )
         await self._emit(TaskId.GENERATE_DESCRIPTION, 100, "Structured description ready")
         return description
+
+
+def _extension_for_mime(image_mime_type: str | None) -> str:
+    if image_mime_type == "image/jpeg":
+        return ".jpg"
+    if image_mime_type == "image/webp":
+        return ".webp"
+    if image_mime_type == "image/gif":
+        return ".gif"
+    return ".png"
 

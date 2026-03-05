@@ -1950,6 +1950,7 @@ name = "selling-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "google-genai" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -1964,6 +1965,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "google-genai", specifier = ">=1.65.0" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },

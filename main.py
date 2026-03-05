@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import inspect
 import os
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from integrations.nano_banana import NanoBananaAdapter
+from integrations.nano_banana import (
+    NanoBananaAdapter,
+    NanoBananaConfigurationError,
+    NanoBananaDirectClient,
+)
 from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import ObjectCaptureProcessor, StubObjectCaptureProcessor
 from vision_agents.core import Agent, AgentLauncher, Runner, User
@@ -19,6 +22,16 @@ from workflow.events import TaskProgressEmitter, TaskProgressEvent
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
+
+_nano_banana_client: NanoBananaDirectClient | None = None
+
+
+def nano_banana_polish_direct(image_path: str, prompt: str) -> dict[str, Any]:
+    """Directly call Nano Banana to create a polished product-shot image."""
+    global _nano_banana_client
+    if _nano_banana_client is None:
+        _nano_banana_client = NanoBananaDirectClient.from_env()
+    return _nano_banana_client.generate_product_shot(image_path=image_path, prompt=prompt)
 
 
 async def create_agent(**kwargs) -> Agent:
@@ -34,9 +47,14 @@ async def create_agent(**kwargs) -> Agent:
         name="nano_banana_polish",
         description="Create polished ecommerce product screenshots from the source image.",
     )
-    def nano_banana_polish(image_path: str, prompt: str) -> dict[str, str]:
-        image_uri = Path(image_path).resolve().as_uri()
-        return {"image_url": image_uri, "revised_prompt": prompt}
+    def nano_banana_polish(image_path: str, prompt: str) -> dict[str, Any]:
+        try:
+            return nano_banana_polish_direct(image_path=image_path, prompt=prompt)
+        except NanoBananaConfigurationError as exc:
+            raise RuntimeError(
+                "Nano Banana is not configured. Set NANO_BANANA_API_KEY "
+                "(or GEMINI_API_KEY) and optionally NANO_BANANA_MODEL."
+            ) from exc
 
     @llm.register_function(
         name="product_search",
