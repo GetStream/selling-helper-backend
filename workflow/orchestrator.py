@@ -109,7 +109,8 @@ class TaskWorkflowOrchestrator:
     async def _capture_screenshot_step(self) -> None:
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 0, "Capturing screenshot")
         screenshot_path = await self._capture.capture_best_frame(self._config.screenshot_dir)
-        self._artifacts.source_image_path = str(screenshot_path)
+        # Keep a canonical absolute path so every integration resolves the same file.
+        self._artifacts.source_image_path = str(screenshot_path.resolve())
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 100, "Screenshot captured")
 
     async def _polish_image_step(self) -> None:

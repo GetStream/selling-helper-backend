@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
-from typing import Any
 
 import aiortc
 import av
@@ -17,6 +17,7 @@ class ObjectCaptureProcessor(VideoProcessor):
     """Detect when object is clearly visible and capture the best frame."""
 
     name = "object_capture"
+    source_frame_filename = "source_product_frame.png"
 
     def __init__(
         self,
@@ -113,7 +114,7 @@ class ObjectCaptureProcessor(VideoProcessor):
             raise RuntimeError("No candidate frame available for screenshot capture.")
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / "source_product_frame.png"
+        output_path = output_dir / self.source_frame_filename
         image = self._best_frame.to_image()
         image.save(output_path)
         return output_path
@@ -128,6 +129,8 @@ class ObjectCaptureProcessor(VideoProcessor):
 
 
 class StubObjectCaptureProcessor:
+    source_frame_filename = ObjectCaptureProcessor.source_frame_filename
+
     """Fallback processor used in tests or non-video environments."""
 
     def __init__(self) -> None:
@@ -139,8 +142,12 @@ class StubObjectCaptureProcessor:
 
     async def capture_best_frame(self, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / "source_product_frame.txt"
-        output_path.write_text("stub-frame", encoding="utf-8")
+        output_path = output_dir / self.source_frame_filename
+        # 1x1 transparent PNG so downstream image tooling receives a valid image.
+        png_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XWfQAAAAASUVORK5CYII="
+        )
+        output_path.write_bytes(png_bytes)
         return output_path
 
     async def stop_processing(self) -> None:

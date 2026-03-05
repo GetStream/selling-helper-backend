@@ -128,7 +128,8 @@ class NanoBananaAdapter:
         image_path: str,
         prompt: str,
     ) -> PolishedImageResult:
-        payload = {"image_path": image_path, "prompt": prompt}
+        # Normalize to absolute path so capture and generation refer to the same file.
+        payload = {"image_path": str(Path(image_path).resolve()), "prompt": prompt}
         response = await self._tool_caller(self._tool_name, payload)
 
         image_url = (
