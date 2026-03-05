@@ -36,7 +36,7 @@ class SupportsCapture(Protocol):
 class OrchestratorConfig:
     """Configurable runtime thresholds for the workflow."""
 
-    capture_timeout_seconds: float = 24.0
+    capture_timeout_seconds: float = 64.0
     detect_retries: int = 2
     screenshot_dir: Path = Path("artifacts")
     nano_prompt: str = (
