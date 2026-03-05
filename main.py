@@ -28,6 +28,8 @@ load_dotenv()
 _nano_banana_client: NanoBananaDirectClient | None = None
 _stream_chat_client: StreamChat | None = None
 
+captured_product_image_filename = "captured_product_frame.png"
+
 
 def _get_stream_chat_client() -> StreamChat:
     global _stream_chat_client
@@ -75,17 +77,18 @@ async def create_agent(**kwargs) -> Agent:
     # llm = gemini.Realtime(model="gemini-3.1-flash-audio-eap", fps=5)
     llm = gemini.Realtime(fps=5)
     capture_processor = ObjectCaptureProcessor(
-        min_ready_score=0.6,
+        min_ready_score=0.8,
         consecutive_ready_frames=5,
+        source_frame_filename=captured_product_image_filename,
     )
 
     @llm.register_function(
         name="nano_banana_polish",
         description="Create polished ecommerce product screenshots from the source image.",
     )
-    def nano_banana_polish(image_path: str, prompt: str) -> dict[str, Any]:
+    def nano_banana_polish(prompt: str) -> dict[str, Any]:
         try:
-            return nano_banana_polish_direct(image_path=image_path, prompt=prompt)
+            return nano_banana_polish_direct(image_path=captured_product_image_filename, prompt=prompt)
         except NanoBananaConfigurationError as exc:
             raise RuntimeError(
                 "Nano Banana is not configured. Set NANO_BANANA_API_KEY "

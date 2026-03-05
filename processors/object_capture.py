@@ -17,17 +17,18 @@ class ObjectCaptureProcessor(VideoProcessor):
     """Detect when object is clearly visible and capture the best frame."""
 
     name = "object_capture"
-    source_frame_filename = "source_product_frame.png"
 
     def __init__(
         self,
         fps: int = 8,
         min_ready_score: float = 0.62,
         consecutive_ready_frames: int = 6,
+        source_frame_filename: str = "captured_product_frame.png",
     ) -> None:
         self.fps = fps
         self.min_ready_score = min_ready_score
         self.consecutive_ready_frames = consecutive_ready_frames
+        self.source_frame_filename = source_frame_filename
 
         self._forwarder: VideoForwarder | None = None
         self._ready_event = asyncio.Event()
@@ -129,13 +130,13 @@ class ObjectCaptureProcessor(VideoProcessor):
 
 
 class StubObjectCaptureProcessor:
-    source_frame_filename = ObjectCaptureProcessor.source_frame_filename
 
     """Fallback processor used in tests or non-video environments."""
 
     def __init__(self) -> None:
         self.guidance_message = "Center the item and hold still."
         self._is_ready = True
+        self.source_frame_filename = "captured_product_frame.png"
 
     async def wait_until_ready(self, timeout_seconds: float = 20.0) -> bool:  # noqa: ARG002
         return self._is_ready

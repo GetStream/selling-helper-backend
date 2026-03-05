@@ -67,11 +67,18 @@ class TaskWorkflowOrchestrator:
         self._artifacts = WorkflowArtifacts()
 
     async def run(self) -> ProductDescription:
+        print("[Orchestrator] Running workflow")
         await self._detect_object_step()
+        print("[Orchestrator] Object detected")
         await self._capture_screenshot_step()
+        print("[Orchestrator] Screenshot captured")
         await self._polish_image_step()
+        print("[Orchestrator] Image polished")
         await self._research_step()
-        return await self._generate_description_step()
+        print("[Orchestrator] Product research complete")
+        description = await self._generate_description_step()
+        print("[Orchestrator] Description generated")
+        return description
 
     async def _emit(self, task_id: TaskId, progress: int, message: str) -> None:
         await self._progress.emit(
@@ -94,6 +101,7 @@ class TaskWorkflowOrchestrator:
                 timeout_seconds=self._config.capture_timeout_seconds
             )
             if ready:
+                print("[Orchestrator] Object clearly detected in frame")
                 await self._emit(TaskId.DETECT_OBJECT, 100, "Object clearly detected in frame")
                 return
 
@@ -107,10 +115,13 @@ class TaskWorkflowOrchestrator:
         raise TimeoutError("Object was not detected clearly enough within timeout window.")
 
     async def _capture_screenshot_step(self) -> None:
+        print("[Orchestrator] Capturing screenshot")
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 0, "Capturing screenshot")
         screenshot_path = await self._capture.capture_best_frame(self._config.screenshot_dir)
         # Keep a canonical absolute path so every integration resolves the same file.
+        print(f"[Orchestrator] Screenshot path: {screenshot_path}")
         self._artifacts.source_image_path = str(screenshot_path.resolve())
+        print(f"[Orchestrator] Source image path: {self._artifacts.source_image_path}")
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 100, "Screenshot captured")
 
     async def _polish_image_step(self) -> None:

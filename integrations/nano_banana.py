@@ -75,7 +75,10 @@ class NanoBananaDirectClient:
         )
 
     def generate_product_shot(self, *, image_path: str, prompt: str) -> dict[str, Any]:
-        source = Path(image_path).resolve()
+        # Build the path as <project-root>/artifacts/<image_path>
+        project_root = Path(__file__).parent.parent.resolve()
+        source = (project_root / "artifacts" / image_path).resolve()
+        print(f"[NanoBanana] Image source: {source}")
         if not source.exists():
             raise FileNotFoundError(f"Source image does not exist: {source}")
 
