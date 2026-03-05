@@ -4,26 +4,30 @@ from __future__ import annotations
 
 import pytest
 
-from workflow.events import TaskProgressEmitter, TaskProgressEvent
+from workflow.events import StreamTaskProgressEmitter, WorkflowContext
 from workflow.models import TaskId, TaskProgress
 
 
-class FakeEventBus:
+class FakeChannel:
     def __init__(self) -> None:
-        self.registered: list[type] = []
-        self.events: list[object] = []
+        self.events: list[tuple[dict, str]] = []
 
-    def register(self, *event_classes, ignore_not_compatible: bool = False) -> None:
-        self.registered.extend(event_classes)
-
-    def send(self, *events: object) -> None:
-        self.events.extend(events)
+    def send_event(self, payload: dict, user_id: str) -> None:
+        self.events.append((payload, user_id))
 
 
 @pytest.mark.asyncio
 async def test_progress_event_contract_shape() -> None:
-    bus = FakeEventBus()
-    emitter = TaskProgressEmitter(bus)
+    channel = FakeChannel()
+    emitter = StreamTaskProgressEmitter(
+        channel=channel,
+        context=WorkflowContext(
+            workflow_id="call-123",
+            channel_type="messaging",
+            channel_id="workflow-call-123",
+            sender_user_id="workflow-server",
+        ),
+    )
 
     payload = await emitter.emit(
         TaskProgress(
@@ -33,17 +37,17 @@ async def test_progress_event_contract_shape() -> None:
         )
     )
 
-    assert payload["type"] == "task.progress"
+    assert payload["type"] == "workflow-task-progress"
+    assert payload["workflowId"] == "call-123"
     assert payload["taskId"] == "detect-object"
     assert payload["progress"] == 45
     assert payload["message"] == "Analyzing frames"
     assert payload["state"] == "running"
-    assert len(bus.events) == 1
-    assert bus.registered
+    assert "timestamp" in payload
+    assert len(channel.events) == 1
 
-    event = bus.events[0]
-    assert isinstance(event, TaskProgressEvent)
-    assert event.type == "task.progress"
-    assert event.task_id == "detect-object"
-    assert event.progress == 45
+    sent_payload, sent_user_id = channel.events[0]
+    assert sent_payload["type"] == "workflow-task-progress"
+    assert sent_payload["taskId"] == "detect-object"
+    assert sent_user_id == "workflow-server"
 

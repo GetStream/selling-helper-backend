@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 from typing import Any
 
 from dotenv import load_dotenv
+from stream_chat import StreamChat
 
 from integrations.nano_banana import (
     NanoBananaAdapter,
@@ -18,12 +20,46 @@ from processors.object_capture import ObjectCaptureProcessor, StubObjectCaptureP
 from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
-from workflow.events import TaskProgressEmitter, TaskProgressEvent
+from workflow.events import StreamTaskProgressEmitter, WorkflowContext
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
 
 _nano_banana_client: NanoBananaDirectClient | None = None
+_stream_chat_client: StreamChat | None = None
+
+
+def _get_stream_chat_client() -> StreamChat:
+    global _stream_chat_client
+    if _stream_chat_client is not None:
+        return _stream_chat_client
+
+    api_key = os.getenv("STREAM_API_KEY")
+    api_secret = os.getenv("STREAM_API_SECRET")
+    if not api_key or not api_secret:
+        raise RuntimeError(
+            "Stream Chat is not configured. Set STREAM_API_KEY and STREAM_API_SECRET."
+        )
+    _stream_chat_client = StreamChat(api_key=api_key, api_secret=api_secret)
+    return _stream_chat_client
+
+
+def _build_channel_id(call_id: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in call_id)
+    return f"workflow-{safe}"
+
+
+def _ensure_workflow_channel(
+    client: StreamChat,
+    *,
+    channel_type: str,
+    channel_id: str,
+    server_user_id: str,
+) -> Any:
+    channel = client.channel(channel_type, channel_id, data={"name": f"Workflow {channel_id}"})
+    client.upsert_user({"id": server_user_id, "name": "Workflow Server"})
+    channel.create(server_user_id)
+    return channel
 
 
 def nano_banana_polish_direct(image_path: str, prompt: str) -> dict[str, Any]:
@@ -96,14 +132,6 @@ async def create_agent(**kwargs) -> Agent:
         },
     )
 
-    agent.events.register(TaskProgressEvent)
-
-    @agent.events.subscribe
-    async def on_task_progress(event: TaskProgressEvent):
-        print(
-            f"[TaskProgress] {event.task_id}: {event.progress}% – {event.message}"
-        )
-
     return agent
 
 
@@ -130,17 +158,28 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     await agent.create_user()
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
-        # Debug: emit an event immediately so we can verify FE receives it
-        agent.events.send(TaskProgressEvent(
-            task_id="agent-joined",
-            progress=0,
-            message="Agent has joined the call",
-            state="running",
-        ))
-        print("[Debug] Sent agent-joined event")
-
         capture = getattr(agent, "_capture_processor", StubObjectCaptureProcessor())
-        progress_emitter = TaskProgressEmitter(agent.events)
+        stream_client = _get_stream_chat_client()
+        channel_type = os.getenv("STREAM_WORKFLOW_CHANNEL_TYPE", "messaging")
+        channel_id = _build_channel_id(call_id)
+        sender_user_id = os.getenv("STREAM_WORKFLOW_SENDER_USER_ID", "workflow-server")
+        channel = await asyncio.to_thread(
+            _ensure_workflow_channel,
+            stream_client,
+            channel_type=channel_type,
+            channel_id=channel_id,
+            server_user_id=sender_user_id,
+        )
+        progress_emitter = StreamTaskProgressEmitter(
+            channel=channel,
+            context=WorkflowContext(
+                workflow_id=call_id,
+                channel_type=channel_type,
+                channel_id=channel_id,
+                sender_user_id=sender_user_id,
+            ),
+        )
+        await progress_emitter.emit_workflow_started()
 
         nano = NanoBananaAdapter(tool_caller=lambda name, args: _call_tool(agent, name, args))
         search = ProductSearchAdapter(tool_caller=lambda name, args: _call_tool(agent, name, args))
@@ -153,7 +192,18 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             product_search=search,
             config=OrchestratorConfig(),
         )
-        description = await orchestrator.run()
+        try:
+            description = await orchestrator.run()
+        except Exception as exc:
+            await progress_emitter.emit_workflow_failed(
+                error_code=type(exc).__name__,
+                error_message=str(exc),
+            )
+            raise
+
+        await progress_emitter.emit_workflow_completed(
+            result_summary=f"{description.title} ({description.confidence:.2f})"
+        )
         await agent.simple_response(
             "Product page draft is ready. "
             f"Title: {description.title}. "

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import pytest
 
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
-from workflow.events import TaskProgressEmitter
+from workflow.events import StreamTaskProgressEmitter, WorkflowContext
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 
@@ -20,15 +21,12 @@ class FakeAgent:
         self.messages.append(text)
 
 
-class FakeEventBus:
+class FakeChannel:
     def __init__(self) -> None:
-        self.events: list[object] = []
+        self.events: list[tuple[dict, str]] = []
 
-    def register(self, *event_classes, ignore_not_compatible: bool = False) -> None:
-        return None
-
-    def send(self, *events: object) -> None:
-        self.events.extend(events)
+    def send_event(self, payload: dict, user_id: str) -> None:
+        self.events.append((payload, user_id))
 
 
 class FakeCaptureProcessor:
@@ -49,7 +47,8 @@ async def test_orchestrator_happy_path(tmp_path: Path) -> None:
     async def tool_caller(tool_name: str, payload: dict) -> dict:
         if tool_name == "nano_banana_polish":
             return {
-                "image_url": "https://example.com/polished-item.png",
+                "image_base64": base64.b64encode(b"fake-image-bytes").decode("ascii"),
+                "image_mime_type": "image/png",
                 "revised_prompt": payload["prompt"],
             }
         if tool_name == "product_search":
@@ -61,7 +60,16 @@ async def test_orchestrator_happy_path(tmp_path: Path) -> None:
         raise AssertionError(f"Unexpected tool call: {tool_name}")
 
     agent = FakeAgent()
-    emitter = TaskProgressEmitter(FakeEventBus())
+    channel = FakeChannel()
+    emitter = StreamTaskProgressEmitter(
+        channel=channel,
+        context=WorkflowContext(
+            workflow_id="call-123",
+            channel_type="messaging",
+            channel_id="workflow-call-123",
+            sender_user_id="workflow-server",
+        ),
+    )
     capture = FakeCaptureProcessor()
     nano = NanoBananaAdapter(tool_caller=tool_caller)
     search = ProductSearchAdapter(tool_caller=tool_caller)
@@ -78,7 +86,10 @@ async def test_orchestrator_happy_path(tmp_path: Path) -> None:
     output = await orchestrator.run()
 
     assert output.title == "Espresso machine"
-    assert str(output.polished_image_url) == "https://example.com/polished-item.png"
+    assert output.polished_image_url is not None
     assert output.confidence > 0.7
     assert any("Please hold your item" in msg for msg in agent.messages)
+    progress_event_types = [payload["type"] for payload, _ in channel.events]
+    assert progress_event_types
+    assert all(event_type == "workflow-task-progress" for event_type in progress_event_types)
 

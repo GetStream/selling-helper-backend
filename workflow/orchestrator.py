@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlparse
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
 from schemas.product_description import ProductDescription, build_product_description
-from workflow.events import TaskProgressEmitter
+from workflow.events import WorkflowEventEmitter
 from workflow.models import TaskId, TaskProgress, TaskState, WorkflowArtifacts
 
 
@@ -52,7 +52,7 @@ class TaskWorkflowOrchestrator:
         self,
         *,
         agent: SupportsSimpleResponse,
-        progress_emitter: TaskProgressEmitter,
+        progress_emitter: WorkflowEventEmitter,
         capture_processor: SupportsCapture,
         nano_banana: NanoBananaAdapter,
         product_search: ProductSearchAdapter,

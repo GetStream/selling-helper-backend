@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=2.2.6",
     "pydantic>=2.11.7",
     "python-dotenv>=1.2.1",
+    "stream-chat>=4.31.0",
     "vision-agents[gemini,getstream]>=0.3.7",
 ]
 
