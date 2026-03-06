@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
+from processors.object_capture import CaptureStatus
 from schemas.product_description import ProductDescription, build_product_description
 from workflow.events import WorkflowEventEmitter
 from workflow.models import TaskId, TaskProgress, TaskState, WorkflowArtifacts
@@ -28,6 +29,8 @@ class SupportsCapture(Protocol):
 
     guidance_message: str
 
+    async def update_capture_status(self, is_capture_active: bool) -> None: ...
+
     async def wait_until_ready(self, timeout_seconds: float = 20.0) -> bool: ...
     async def capture_best_frame(self, output_dir: Path) -> Path: ...
 
@@ -36,8 +39,8 @@ class SupportsCapture(Protocol):
 class OrchestratorConfig:
     """Configurable runtime thresholds for the workflow."""
 
-    capture_timeout_seconds: float = 64.0
-    detect_retries: int = 2
+    capture_timeout_seconds: float = 10.0
+    detect_retries: int = 4
     screenshot_dir: Path = Path("artifacts")
     nano_prompt: str = (
         "Create polished ecommerce product photos on a clean background with soft lighting."
@@ -92,11 +95,13 @@ class TaskWorkflowOrchestrator:
 
     async def _detect_object_step(self) -> None:
         await self._emit(TaskId.DETECT_OBJECT, 0, "Detecting object in frame")
+        await self._capture.update_capture_status(CaptureStatus.DETECTING)
         await self._agent.simple_response(
             "Please hold your item in front of the webcam. I will guide you automatically."
         )
 
         for attempt in range(self._config.detect_retries + 1):
+            print(f"[Orchestrator] Detecting object in frame, attempt {attempt + 1} / {self._config.detect_retries + 1}")
             ready = await self._capture.wait_until_ready(
                 timeout_seconds=self._config.capture_timeout_seconds
             )
@@ -116,8 +121,13 @@ class TaskWorkflowOrchestrator:
 
     async def _capture_screenshot_step(self) -> None:
         print("[Orchestrator] Capturing screenshot")
+        await self._capture.update_capture_status(CaptureStatus.CAPTURING)
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 0, "Capturing screenshot")
         screenshot_path = await self._capture.capture_best_frame(self._config.screenshot_dir)
+
+        if not screenshot_path:
+            raise RuntimeError("Screenshot path is missing after capture step.")
+
         # Keep a canonical absolute path so every integration resolves the same file.
         print(f"[Orchestrator] Screenshot path: {screenshot_path}")
         self._artifacts.source_image_path = str(screenshot_path.resolve())

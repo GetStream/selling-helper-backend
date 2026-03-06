@@ -77,8 +77,8 @@ async def create_agent(**kwargs) -> Agent:
     # llm = gemini.Realtime(model="gemini-3.1-flash-audio-eap", fps=5)
     llm = gemini.Realtime(fps=5)
     capture_processor = ObjectCaptureProcessor(
-        min_ready_score=0.8,
-        consecutive_ready_frames=5,
+        min_ready_score=0.62,
+        consecutive_ready_frames=10,
         source_frame_filename=captured_product_image_filename,
     )
 
@@ -134,7 +134,6 @@ async def create_agent(**kwargs) -> Agent:
             "product_search": product_search,
         },
     )
-
     return agent
 
 
