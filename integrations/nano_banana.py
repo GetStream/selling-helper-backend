@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from google import genai
 from google.genai import types
+
+from workflow.events import WorkflowEventEmitter
 
 
 @dataclass(slots=True)
@@ -40,14 +43,11 @@ class NanoBananaDirectConfig:
     timeout_seconds: float = 45.0
 
 
-class NanoBananaDirectClient:
+class NanoBananaClient:
     """Direct SDK client for product-shot image optimization."""
 
-    def __init__(self, config: NanoBananaDirectConfig) -> None:
-        self._config = config
-
-    @classmethod
-    def from_env(cls) -> "NanoBananaDirectClient":
+    def __init__(self, workflow_emitter: WorkflowEventEmitter) -> None:
+        self._workflow_emitter = workflow_emitter
         api_key = (
             os.getenv("NANO_BANANA_API_KEY", "").strip()
             or os.getenv("GEMINI_API_KEY", "").strip()
@@ -66,15 +66,14 @@ class NanoBananaDirectClient:
                 "NANO_BANANA_TIMEOUT_SECONDS must be a number."
             ) from exc
 
-        return cls(
-            NanoBananaDirectConfig(
-                api_key=api_key,
-                model=model,
-                timeout_seconds=timeout_seconds,
-            )
+        self._config = NanoBananaDirectConfig(
+            api_key=api_key,
+            model=model,
+            timeout_seconds=timeout_seconds,
         )
 
     def generate_product_shot(self, *, image_path: str, prompt: str) -> dict[str, Any]:
+        print(f"[NanoBanana] Generating product shot with image path: {image_path} and prompt: {prompt}")
         # Build the path as <project-root>/artifacts/<image_path>
         project_root = Path(__file__).parent.parent.resolve()
         source = (project_root / "artifacts" / image_path).resolve()
@@ -84,7 +83,7 @@ class NanoBananaDirectClient:
 
         with source.open("rb") as fh:
             source_bytes = fh.read()
-        source_mime = _guess_mime_type(source)
+        source_mime = "image/png"
         client = genai.Client(
             api_key=self._config.api_key,
             http_options=types.HttpOptions(timeout=int(self._config.timeout_seconds * 1000)),
@@ -99,71 +98,69 @@ class NanoBananaDirectClient:
                 ],
                 config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
             )
+            print(f"[NanoBanana] Response: {response}")
         except Exception as exc:  # noqa: BLE001
             raise NanoBananaAPIError(f"Nano Banana SDK request failed: {exc}") from exc
 
         image_bytes, image_mime, revised_prompt = _extract_sdk_generation(response)
+        # print(f"[NanoBanana] Image bytes: {image_bytes}")
+        print(f"[NanoBanana] Image mime: {image_mime}")
+        print(f"[NanoBanana] Revised prompt: {revised_prompt}")
         if not image_bytes:
             raise NanoBananaAPIError("Nano Banana SDK response did not contain image data.")
 
-        return {
+        raw_response = response.model_dump(mode="json", exclude_none=True)
+
+        image_url = (
+            raw_response.get("image_url")
+            or raw_response.get("url")
+            or raw_response.get("output_url")
+            or ""
+        )
+        print(f"[NanoBananaAdapter] Image URL: {image_url}")
+        image_bytes, image_mime = _extract_inline_image(response)
+        if not image_url and not image_bytes:
+            raise ValueError("Nano Banana response did not include an image URL or inline image.")
+
+        self._workflow_emitter.emit_polished_image(image_bytes, image_mime or "image/png")
+        print("[NanoBanana] Creating Polished image result")
+        # result = PolishedImageResult(
+        #     image_url=image_url,
+        #     revised_prompt=raw_response.get("revised_prompt") or prompt,
+        #     image_bytes=image_bytes,
+        #     image_mime_type=image_mime or "image/png",
+        #     raw=raw_response,
+        # )
+
+        # print(f"[NanoBanana] Polished image result: {result}")
+        # self._artifacts.polished_image_url = result.image_url
+        # print(f"[NanoBanana] Polished image URL: {self._artifacts.polished_image_url}")
+
+        return_object = {
             "image_base64": base64.b64encode(image_bytes).decode("ascii"),
             "image_mime_type": image_mime or "image/png",
             "revised_prompt": revised_prompt or prompt,
             "raw_response": response.model_dump(mode="json", exclude_none=True),
         }
+        print(f"[NanoBanana] Return object: {return_object}")
 
+        # output_path = project_root / "artifacts" / f"polished_product_live{_guess_mime_type(image_mime)}"
+        # output_path.parent.mkdir(parents=True, exist_ok=True)
+        # output_path.write_bytes(image_bytes)
+        # print(f"[NanoBanana] Saved polished image to: {output_path}")
 
-class NanoBananaAdapter:
-    """Adapter around MCP tool-calling for polished product image generation."""
+        # image_url = str(output_path.resolve().as_uri())
 
-    def __init__(
-        self,
-        tool_caller: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]],
-        tool_name: str = "nano_banana_polish",
-    ) -> None:
-        self._tool_caller = tool_caller
-        self._tool_name = tool_name
-
-    async def polish_image(
-        self,
-        *,
-        image_path: str,
-        prompt: str,
-    ) -> PolishedImageResult:
-        # Normalize to absolute path so capture and generation refer to the same file.
-        payload = {"image_path": str(Path(image_path).resolve()), "prompt": prompt}
-        response = await self._tool_caller(self._tool_name, payload)
-
-        image_url = (
-            response.get("image_url")
-            or response.get("url")
-            or response.get("output_url")
-            or ""
-        )
-        image_bytes, image_mime = _extract_inline_image(response)
-        if not image_url and not image_bytes:
-            raise ValueError("Nano Banana response did not include an image URL or inline image.")
-
-        return PolishedImageResult(
-            image_url=image_url,
-            revised_prompt=response.get("revised_prompt"),
-            image_bytes=image_bytes,
-            image_mime_type=image_mime,
-            raw=response,
-        )
-
-
-def _guess_mime_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in {".jpg", ".jpeg"}:
-        return "image/jpeg"
-    if suffix == ".webp":
-        return "image/webp"
-    if suffix == ".gif":
-        return "image/gif"
-    return "image/png"
-
+        # return_object = {
+        #     "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+        #     "image_mime_type": image_mime or "image/png",
+        #     "revised_prompt": revised_prompt or prompt,
+        #     "image_url": image_url,
+        #     "image_path": str(output_path),
+        #     "raw_response": raw_response,
+        # }
+        # print(f"[NanoBanana] Return object: {return_object}")
+        return return_object
 
 def _extract_sdk_generation(
     response: types.GenerateContentResponse,
@@ -178,24 +175,47 @@ def _extract_sdk_generation(
     return None, None, revised_prompt
 
 
-def _extract_inline_image(payload: dict[str, Any]) -> tuple[bytes | None, str | None]:
-    b64_value = (
-        payload.get("image_base64")
-        or payload.get("image_b64")
-        or payload.get("b64_json")
-        or payload.get("data")
-    )
-    if b64_value:
-        try:
-            image_bytes = base64.b64decode(b64_value)
-        except (ValueError, TypeError):
-            image_bytes = None
-        if image_bytes:
-            return image_bytes, payload.get("image_mime_type") or payload.get("mime_type")
-
-    raw_bytes = payload.get("image_bytes")
-    if isinstance(raw_bytes, bytes):
-        return raw_bytes, payload.get("image_mime_type") or payload.get("mime_type")
-
+def _extract_inline_image(response: Any) -> tuple[bytes | None, str | None]:
+    for part in response.parts:
+        if part.text is not None:
+            print(f"[NanoBanana] Part.text: ${part.text}")
+        elif part.inline_data is not None:
+            # image_bytes = _decode_base64_image(part.inline_data.data)
+            image_bytes = part.inline_data.data
+            mime_type = part.inline_data.mime_type
+            image = part.as_image()
+            image.save("generated_image.png")
+            return image_bytes, mime_type
     return None, None
+
+
+def _decode_base64_image(value: Any) -> bytes | None:
+    if value is None:
+        return None
+    if isinstance(value, bytearray):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+    if not isinstance(value, str):
+        return None
+
+    encoded = value.strip()
+    if not encoded:
+        return None
+
+    if encoded.startswith("data:") and "," in encoded:
+        encoded = encoded.split(",", 1)[1].strip()
+
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        try:
+            decoded = base64.b64decode(encoded)
+        except (binascii.Error, ValueError, TypeError):
+            return None
+
+    return decoded or None
 

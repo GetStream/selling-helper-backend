@@ -11,25 +11,32 @@ from dotenv import load_dotenv
 from stream_chat import StreamChat
 
 from integrations.nano_banana import (
-    NanoBananaAdapter,
     NanoBananaConfigurationError,
-    NanoBananaDirectClient,
+    NanoBananaClient,
 )
 from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import ObjectCaptureProcessor, StubObjectCaptureProcessor
 from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
-from workflow.events import StreamTaskProgressEmitter, WorkflowContext
+from workflow.events import StreamTaskProgressEmitter, WorkflowContext, WorkflowEventEmitter
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
 
-_nano_banana_client: NanoBananaDirectClient | None = None
 _stream_chat_client: StreamChat | None = None
-
+_workflow_emitter: WorkflowEventEmitter | None = None
 captured_product_image_filename = "captured_product_frame.png"
 
+def _get_workflow_emitter() -> WorkflowEventEmitter:
+    global _workflow_emitter
+    if _workflow_emitter is not None:
+        return _workflow_emitter
+    _workflow_emitter = StreamTaskProgressEmitter(
+        channel=None,
+        context=WorkflowContext(workflow_id="7430192471", channel_type="messaging", channel_id="workflow-7430192471", sender_user_id="workflow-server"),
+    )
+    return _workflow_emitter
 
 def _get_stream_chat_client() -> StreamChat:
     global _stream_chat_client
@@ -63,21 +70,12 @@ def _ensure_workflow_channel(
     channel.create(server_user_id)
     return channel
 
-
-def nano_banana_polish_direct(image_path: str, prompt: str) -> dict[str, Any]:
-    """Directly call Nano Banana to create a polished product-shot image."""
-    global _nano_banana_client
-    if _nano_banana_client is None:
-        _nano_banana_client = NanoBananaDirectClient.from_env()
-    return _nano_banana_client.generate_product_shot(image_path=image_path, prompt=prompt)
-
-
 async def create_agent(**kwargs) -> Agent:
     """Create a realtime seller agent with MCP/function-calling support."""
     # llm = gemini.Realtime(model="gemini-3.1-flash-audio-eap", fps=5)
     llm = gemini.Realtime(fps=5)
     capture_processor = ObjectCaptureProcessor(
-        min_ready_score=0.62,
+        min_ready_score=0.45,
         consecutive_ready_frames=10,
         source_frame_filename=captured_product_image_filename,
     )
@@ -88,7 +86,8 @@ async def create_agent(**kwargs) -> Agent:
     )
     def nano_banana_polish(prompt: str) -> dict[str, Any]:
         try:
-            return nano_banana_polish_direct(image_path=captured_product_image_filename, prompt=prompt)
+            nano_banana_client = NanoBananaClient(workflow_emitter=_get_workflow_emitter())
+            return nano_banana_client.generate_product_shot(image_path=captured_product_image_filename, prompt=prompt)
         except NanoBananaConfigurationError as exc:
             raise RuntimeError(
                 "Nano Banana is not configured. Set NANO_BANANA_API_KEY "
@@ -182,15 +181,12 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             ),
         )
         await progress_emitter.emit_workflow_started()
-
-        nano = NanoBananaAdapter(tool_caller=lambda name, args: _call_tool(agent, name, args))
         search = ProductSearchAdapter(tool_caller=lambda name, args: _call_tool(agent, name, args))
 
         orchestrator = TaskWorkflowOrchestrator(
             agent=agent,
             progress_emitter=progress_emitter,
             capture_processor=capture,
-            nano_banana=nano,
             product_search=search,
             config=OrchestratorConfig(),
         )

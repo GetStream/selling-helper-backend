@@ -31,6 +31,7 @@ class WorkflowEventEmitter(Protocol):
     """Transport-agnostic emitter contract used by the orchestrator."""
 
     async def emit(self, update: TaskProgress) -> dict[str, Any]: ...
+    async def emit_polished_image(self, image_data: bytes, image_mime_type: str) -> dict[str, Any]: ...
 
 
 class StreamTaskProgressEmitter:
@@ -98,9 +99,28 @@ class StreamTaskProgressEmitter:
         }
         return await self._send(payload)
 
+    async def emit_polished_image(self, image_data: bytes, image_mime_type: str) -> dict[str, Any]:
+        """ Emit a polished image event to the channel. """
+        payload = {
+            "type": "polished-image",
+            "workflowId": self._context.workflow_id,
+            "imageData": image_data,
+            "imageMimeType": image_mime_type,
+            "timestamp": _utc_timestamp(),
+        }
+        return await self._send(payload)
+
     async def _send(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send a payload to Stream without blocking the event loop."""
         logger.info(
+            "Emitting workflow event channel=%s:%s sender=%s payload=%s",
+            self._context.channel_type,
+            self._context.channel_id,
+            self._context.sender_user_id,
+            payload,
+        )
+
+        print(
             "Emitting workflow event channel=%s:%s sender=%s payload=%s",
             self._context.channel_type,
             self._context.channel_id,

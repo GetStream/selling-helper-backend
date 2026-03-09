@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import unquote, urlparse
 
-from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import CaptureStatus
 from schemas.product_description import ProductDescription, build_product_description
@@ -57,14 +56,12 @@ class TaskWorkflowOrchestrator:
         agent: SupportsSimpleResponse,
         progress_emitter: WorkflowEventEmitter,
         capture_processor: SupportsCapture,
-        nano_banana: NanoBananaAdapter,
         product_search: ProductSearchAdapter,
         config: OrchestratorConfig | None = None,
     ) -> None:
         self._agent = agent
         self._progress = progress_emitter
         self._capture = capture_processor
-        self._nano = nano_banana
         self._search = product_search
         self._config = config or OrchestratorConfig()
         self._artifacts = WorkflowArtifacts()
@@ -139,23 +136,27 @@ class TaskWorkflowOrchestrator:
             raise RuntimeError("Source image path is missing before polish step.")
 
         await self._emit(TaskId.POLISH_IMAGE, 0, "Polishing product image")
-        result = await asyncio.wait_for(
-            self._nano.polish_image(
-                image_path=self._artifacts.source_image_path,
-                prompt=self._config.nano_prompt,
-            ),
-            timeout=45.0,
+        await self._agent.simple_response(
+            "Please tell the user that the image will now be polished and perform that step in the background using the nano_banana_polish tool."
         )
-        self._artifacts.polished_image_url = result.image_url
+        print(f"[Orchestrator] Polishing product image with prompt: {self._config.nano_prompt}")
+        
+        import time
 
-        saved_path = await self._save_polished_image(
-            image_url=result.image_url or None,
-            image_bytes=result.image_bytes,
-            image_mime_type=result.image_mime_type,
-        )
-        if not self._artifacts.polished_image_url:
-            self._artifacts.polished_image_url = saved_path.resolve().as_uri()
-        self._artifacts.polished_image_path = str(saved_path)
+        image_path = Path(__file__).parent.parent.resolve() / "artifacts" / "polished_product_live.png"
+        image_found = False
+        start_time = time.time()
+        wait_seconds = 45
+
+        while time.time() - start_time < wait_seconds:
+            if Path(image_path).exists():
+                image_found = True
+                print(f"[Orchestrator] Polished image found at: {image_path}")
+                break
+            await asyncio.sleep(1)
+
+        if not image_found:
+            raise TimeoutError(f"Polished image was not generated at {image_path} within {wait_seconds} seconds.")
         await self._emit(TaskId.POLISH_IMAGE, 100, "Polished product image created")
 
     async def _save_polished_image(

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from main import nano_banana_polish_direct
+from integrations.nano_banana import NanoBananaClient
 
 load_dotenv()
 
@@ -42,8 +42,8 @@ def test_nano_banana_live_generates_polished_product_shot() -> None:
         "Remove distracting background objects and hands while preserving realistic texture. "
         "Output a marketplace-ready hero image."
     )
-
-    result = nano_banana_polish_direct(image_path=str(source_path), prompt=prompt)
+    client = NanoBananaClient(workflow_emitter=None)
+    result = client.generate_product_shot(image_path=str(source_path), prompt=prompt)
     image_b64 = result.get("image_base64")
     assert image_b64, "Nano Banana response did not include image_base64."
     image_bytes = base64.b64decode(image_b64)
