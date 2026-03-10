@@ -13,3 +13,6 @@ wheels/
 .env
 
 DS_Store
+
+# Artifacts
+artifacts/
