@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlparse
 from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import CaptureStatus
 from schemas.product_description import ProductDescription, build_product_description
-from workflow.events import WorkflowEventEmitter
+from workflow.events import EventEmitter
 from workflow.models import TaskId, TaskProgress, TaskState, WorkflowArtifacts
 
 
@@ -54,7 +54,7 @@ class TaskWorkflowOrchestrator:
         self,
         *,
         agent: SupportsSimpleResponse,
-        progress_emitter: WorkflowEventEmitter,
+        progress_emitter: EventEmitter,
         capture_processor: SupportsCapture,
         product_search: ProductSearchAdapter,
         config: OrchestratorConfig | None = None,

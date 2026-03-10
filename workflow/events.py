@@ -27,14 +27,14 @@ class WorkflowContext:
     sender_user_id: str
 
 
-class WorkflowEventEmitter(Protocol):
+class EventEmitter(Protocol):
     """Transport-agnostic emitter contract used by the orchestrator."""
 
     async def emit(self, update: TaskProgress) -> dict[str, Any]: ...
     async def emit_polished_image(self, image_data: bytes, image_mime_type: str) -> dict[str, Any]: ...
 
 
-class StreamTaskProgressEmitter:
+class StreamEventEmitter:
     """Emit workflow events as Stream Chat custom channel events."""
 
     def __init__(
@@ -99,16 +99,20 @@ class StreamTaskProgressEmitter:
         }
         return await self._send(payload)
 
-    async def emit_polished_image(self, image_data: bytes, image_mime_type: str) -> dict[str, Any]:
+    async def emit_polished_image(self, image_path: str, image_mime_type: str) -> dict[str, Any]:
         """ Emit a polished image event to the channel. """
-        payload = {
-            "type": "polished-image",
-            "workflowId": self._context.workflow_id,
-            "imageData": image_data,
-            "imageMimeType": image_mime_type,
-            "timestamp": _utc_timestamp(),
-        }
-        return await self._send(payload)
+        if self._channel is None:
+            raise ValueError("Channel is not set")
+
+        upload_response = self._channel.send_image(
+            image_path,
+            image_path.name,
+            self._context.sender_user_id,
+            content_type=image_mime_type,
+        )
+
+        print(f"[StreamTaskProgressEmitter] Upload response: {upload_response}")
+        return upload_response
 
     async def _send(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send a payload to Stream without blocking the event loop."""

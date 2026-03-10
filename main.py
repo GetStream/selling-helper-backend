@@ -19,20 +19,20 @@ from processors.object_capture import ObjectCaptureProcessor, StubObjectCaptureP
 from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
-from workflow.events import StreamTaskProgressEmitter, WorkflowContext, WorkflowEventEmitter
+from workflow.events import StreamEventEmitter, WorkflowContext, EventEmitter
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
 
 _stream_chat_client: StreamChat | None = None
-_workflow_emitter: WorkflowEventEmitter | None = None
+_workflow_emitter: EventEmitter | None = None
 captured_product_image_filename = "captured_product_frame.png"
 
-def _get_workflow_emitter() -> WorkflowEventEmitter:
+def _get_workflow_emitter() -> EventEmitter:
     global _workflow_emitter
     if _workflow_emitter is not None:
         return _workflow_emitter
-    _workflow_emitter = StreamTaskProgressEmitter(
+    _workflow_emitter = StreamEventEmitter(
         channel=None,
         context=WorkflowContext(workflow_id="7430192471", channel_type="messaging", channel_id="workflow-7430192471", sender_user_id="workflow-server"),
     )
@@ -86,8 +86,8 @@ async def create_agent(**kwargs) -> Agent:
     )
     def nano_banana_polish(prompt: str) -> dict[str, Any]:
         try:
-            nano_banana_client = NanoBananaClient(workflow_emitter=_get_workflow_emitter())
-            return nano_banana_client.generate_product_shot(image_path=captured_product_image_filename, prompt=prompt)
+            nano_banana_client = NanoBananaClient(event_emitter=_get_workflow_emitter())
+            return nano_banana_client.generate_product_shot(image_name=captured_product_image_filename, prompt=prompt)
         except NanoBananaConfigurationError as exc:
             raise RuntimeError(
                 "Nano Banana is not configured. Set NANO_BANANA_API_KEY "
@@ -171,7 +171,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             channel_id=channel_id,
             server_user_id=sender_user_id,
         )
-        progress_emitter = StreamTaskProgressEmitter(
+        progress_emitter = StreamEventEmitter(
             channel=channel,
             context=WorkflowContext(
                 workflow_id=call_id,
