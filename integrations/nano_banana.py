@@ -68,7 +68,7 @@ class NanoBananaClient:
     def _get_image_path(self, image_name: str) -> str:
         """Get the path to the image file. Throws an error if it doesn't exist."""
         image_folder = self._get_image_folder()
-        image_path = (image_folder / image_name).resolve()
+        image_path = (image_folder / f"{image_name}.png").resolve()
         if not image_path.exists():
             raise FileNotFoundError(f"Source image does not exist: {image_path}")
         return image_path
