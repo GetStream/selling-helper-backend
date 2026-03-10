@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from helpers import get_date_and_time_now
 from workflow.events import EventEmitter
 
 
@@ -112,7 +112,7 @@ class NanoBananaClient:
                 image = part.as_image()
                 image_mime = part.inline_data.mime_type
                 product_shot_image_path = (
-                    f"{folder_path}/generated_image-${round(time.time() * 1000)}.png"
+                    f"{folder_path}/generated_image-${get_date_and_time_now()}.png"
                 )
                 image.save(product_shot_image_path)
                 return product_shot_image_path, image_mime

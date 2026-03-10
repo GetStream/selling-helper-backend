@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 
 import aiortc
 import av
@@ -13,12 +12,16 @@ import numpy as np
 from vision_agents.core.processors import VideoProcessor
 from vision_agents.core.utils.video_forwarder import VideoForwarder
 
+from helpers import get_date_and_time_now
+
+
 class CaptureStatus(Enum):
     """Status of the capture process."""
 
     INACTIVE = "inactive"
     DETECTING = "detecting"
     CAPTURING = "capturing"
+
 
 class ObjectCaptureProcessor(VideoProcessor):
     """Detect when object is clearly visible and capture the best frame."""
@@ -28,13 +31,12 @@ class ObjectCaptureProcessor(VideoProcessor):
     def __init__(
         self,
         fps: int = 8,
-        capture_status: CaptureStatus = CaptureStatus.INACTIVE,
         min_ready_score: float = 0.62,
         consecutive_ready_frames: int = 6,
-        source_frame_filename: str = "captured_product_frame.png",
+        source_frame_filename: str = "captured_product_frame",
     ) -> None:
         self.fps = fps
-        self.capture_status = capture_status
+        self.capture_status = CaptureStatus.INACTIVE
         self.min_ready_score = min_ready_score
         self.consecutive_ready_frames = consecutive_ready_frames
         self.source_frame_filename = source_frame_filename
@@ -58,7 +60,9 @@ class ObjectCaptureProcessor(VideoProcessor):
     ) -> None:
         # If the video forwarder is not provided, raise an error.
         if shared_forwarder is None:
-            raise RuntimeError("ObjectCaptureProcessor requires a shared VideoForwarder.")
+            raise RuntimeError(
+                "ObjectCaptureProcessor requires a shared VideoForwarder."
+            )
 
         # If the forwarder is already set, remove the existing frame handler.
         if self._forwarder is not None:
@@ -78,7 +82,9 @@ class ObjectCaptureProcessor(VideoProcessor):
     async def _handle_frame(self, frame: av.VideoFrame) -> None:
         # If the capture is inactive, skip frame analysis.
         if self.capture_status == CaptureStatus.INACTIVE:
-            print("[ObjectCaptureProcessor] Capture is inactive, skipping frame analysis")
+            print(
+                "[ObjectCaptureProcessor] Capture is inactive, skipping frame analysis"
+            )
             return
 
         if self.capture_status == CaptureStatus.DETECTING:
@@ -95,7 +101,9 @@ class ObjectCaptureProcessor(VideoProcessor):
                 self._ready_streak = 0
 
             if self._ready_streak >= self.consecutive_ready_frames:
-                print("[ObjectCaptureProcessor] Ready streak reached, setting ready event")
+                print(
+                    "[ObjectCaptureProcessor] Ready streak reached, setting ready event"
+                )
                 self._ready_event.set()
 
     def _analyze_frame(self, frame: av.VideoFrame) -> tuple[float, str]:
@@ -137,11 +145,15 @@ class ObjectCaptureProcessor(VideoProcessor):
             raise RuntimeError("No candidate frame available for screenshot capture.")
 
         if self.capture_status != CaptureStatus.CAPTURING:
-            print("[ObjectCaptureProcessor] Capture is not active, skipping frame capture")
+            print(
+                "[ObjectCaptureProcessor] Capture is not active, skipping frame capture"
+            )
             return
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / self.source_frame_filename
+        output_path = (
+            output_dir / f"{self.source_frame_filename}-{get_date_and_time_now()}.png"
+        )
         image = self._best_frame.to_image()
         image.save(output_path)
         print(f"[ObjectCaptureProcessor] Frame captured, output path: {output_path}")
@@ -154,33 +166,3 @@ class ObjectCaptureProcessor(VideoProcessor):
 
     async def close(self) -> None:
         await self.stop_processing()
-
-
-class StubObjectCaptureProcessor:
-
-    """Fallback processor used in tests or non-video environments."""
-
-    def __init__(self) -> None:
-        self.guidance_message = "Center the item and hold still."
-        self._is_ready = True
-        self.source_frame_filename = "captured_product_frame.png"
-
-    async def wait_until_ready(self, timeout_seconds: float = 20.0) -> bool:  # noqa: ARG002
-        return self._is_ready
-
-    async def capture_best_frame(self, output_dir: Path) -> Path:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / self.source_frame_filename
-        # 1x1 transparent PNG so downstream image tooling receives a valid image.
-        png_bytes = base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+XWfQAAAAASUVORK5CYII="
-        )
-        output_path.write_bytes(png_bytes)
-        return output_path
-
-    async def stop_processing(self) -> None:
-        return None
-
-    async def close(self) -> None:
-        return None
-
