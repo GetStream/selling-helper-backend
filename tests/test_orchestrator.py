@@ -9,7 +9,7 @@ import pytest
 
 from integrations.nano_banana import NanoBananaAdapter
 from integrations.product_search import ProductSearchAdapter
-from workflow.events import StreamTaskProgressEmitter, WorkflowContext
+from workflow.events import StreamEventEmitter, WorkflowContext
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 
@@ -61,7 +61,7 @@ async def test_orchestrator_happy_path(tmp_path: Path) -> None:
 
     agent = FakeAgent()
     channel = FakeChannel()
-    emitter = StreamTaskProgressEmitter(
+    emitter = StreamEventEmitter(
         channel=channel,
         context=WorkflowContext(
             workflow_id="call-123",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from workflow.events import StreamTaskProgressEmitter, WorkflowContext
+from workflow.events import StreamEventEmitter, WorkflowContext
 from workflow.models import TaskId, TaskProgress
 
 
@@ -19,7 +19,7 @@ class FakeChannel:
 @pytest.mark.asyncio
 async def test_progress_event_contract_shape() -> None:
     channel = FakeChannel()
-    emitter = StreamTaskProgressEmitter(
+    emitter = StreamEventEmitter(
         channel=channel,
         context=WorkflowContext(
             workflow_id="call-123",

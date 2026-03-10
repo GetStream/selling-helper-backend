@@ -42,8 +42,8 @@ def test_nano_banana_live_generates_polished_product_shot() -> None:
         "Remove distracting background objects and hands while preserving realistic texture. "
         "Output a marketplace-ready hero image."
     )
-    client = NanoBananaClient(workflow_emitter=None)
-    result = client.generate_product_shot(image_path=str(source_path), prompt=prompt)
+    client = NanoBananaClient(event_emitter=None)
+    result = client.generate_product_shot(image_name=str(source_path), prompt=prompt)
     image_b64 = result.get("image_base64")
     assert image_b64, "Nano Banana response did not include image_base64."
     image_bytes = base64.b64decode(image_b64)
