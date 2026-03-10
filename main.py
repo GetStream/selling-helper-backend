@@ -5,38 +5,74 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import random
+from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
 from stream_chat import StreamChat
-
-from integrations.nano_banana import (
-    NanoBananaConfigurationError,
-    NanoBananaClient,
-)
-from integrations.product_search import ProductSearchAdapter
-from processors.object_capture import ObjectCaptureProcessor, StubObjectCaptureProcessor
 from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
-from workflow.events import StreamEventEmitter, WorkflowContext, EventEmitter
+
+from helpers import build_channel_id, ensure_workflow_channel_is_created
+from integrations.nano_banana import (
+    NanoBananaClient,
+    NanoBananaConfigurationError,
+)
+from integrations.product_search import ProductSearchAdapter
+from processors.object_capture import ObjectCaptureProcessor
+from workflow.events import EventEmitter, StreamEventEmitter, WorkflowContext
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
 
-_stream_chat_client: StreamChat | None = None
-_workflow_emitter: EventEmitter | None = None
-captured_product_image_filename = "captured_product_frame.png"
 
-def _get_workflow_emitter() -> EventEmitter:
-    global _workflow_emitter
-    if _workflow_emitter is not None:
-        return _workflow_emitter
-    _workflow_emitter = StreamEventEmitter(
+@dataclass(slots=True)
+class ProductDetails:
+    """Details of the searched product."""
+
+    name: str
+    description: str
+    specifications: str
+    pricing: str
+
+
+# Global variables
+_stream_chat_client: StreamChat | None = None
+_event_emitter: EventEmitter | None = None
+_object_capture_processor: ObjectCaptureProcessor | None = None
+
+# Constants
+CAPTURED_PRODUCT_IMAGE_FILENAME = "captured_product_frame"
+
+
+def _get_event_emitter() -> EventEmitter:
+    global _event_emitter
+    if _event_emitter is not None:
+        return _event_emitter
+    _event_emitter = StreamEventEmitter(
         channel=None,
-        context=WorkflowContext(workflow_id="7430192471", channel_type="messaging", channel_id="workflow-7430192471", sender_user_id="workflow-server"),
+        context=WorkflowContext(
+            workflow_id="7430192471",
+            channel_type="messaging",
+            channel_id="workflow-7430192471",
+            sender_user_id="workflow-server",
+        ),
     )
-    return _workflow_emitter
+    return _event_emitter
+
+
+def _get_object_capture_processor() -> ObjectCaptureProcessor:
+    global _object_capture_processor
+    if _object_capture_processor is not None:
+        return _object_capture_processor
+    _object_capture_processor = ObjectCaptureProcessor(
+        min_ready_score=0.4,
+        consecutive_ready_frames=10,
+        source_frame_filename=CAPTURED_PRODUCT_IMAGE_FILENAME,
+    )
+
 
 def _get_stream_chat_client() -> StreamChat:
     global _stream_chat_client
@@ -53,32 +89,10 @@ def _get_stream_chat_client() -> StreamChat:
     return _stream_chat_client
 
 
-def _build_channel_id(call_id: str) -> str:
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in call_id)
-    return f"workflow-{safe}"
-
-
-def _ensure_workflow_channel(
-    client: StreamChat,
-    *,
-    channel_type: str,
-    channel_id: str,
-    server_user_id: str,
-) -> Any:
-    channel = client.channel(channel_type, channel_id, data={"name": f"Workflow {channel_id}"})
-    client.upsert_user({"id": server_user_id, "name": "Workflow Server"})
-    channel.create(server_user_id)
-    return channel
-
 async def create_agent(**kwargs) -> Agent:
     """Create a realtime seller agent with MCP/function-calling support."""
     # llm = gemini.Realtime(model="gemini-3.1-flash-audio-eap", fps=5)
     llm = gemini.Realtime(fps=5)
-    capture_processor = ObjectCaptureProcessor(
-        min_ready_score=0.45,
-        consecutive_ready_frames=10,
-        source_frame_filename=captured_product_image_filename,
-    )
 
     @llm.register_function(
         name="nano_banana_polish",
@@ -86,8 +100,10 @@ async def create_agent(**kwargs) -> Agent:
     )
     def nano_banana_polish(prompt: str) -> dict[str, Any]:
         try:
-            nano_banana_client = NanoBananaClient(event_emitter=_get_workflow_emitter())
-            return nano_banana_client.generate_product_shot(image_name=captured_product_image_filename, prompt=prompt)
+            nano_banana_client = NanoBananaClient(event_emitter=_get_event_emitter())
+            return nano_banana_client.generate_product_shot(
+                image_name=CAPTURED_PRODUCT_IMAGE_FILENAME, prompt=prompt
+            )
         except NanoBananaConfigurationError as exc:
             raise RuntimeError(
                 "Nano Banana is not configured. Set NANO_BANANA_API_KEY "
@@ -98,7 +114,7 @@ async def create_agent(**kwargs) -> Agent:
         name="product_search",
         description="Search product details and likely features for a photographed item.",
     )
-    def product_search(query: str, image_url: str | None = None) -> dict[str, Any]:
+    def product_search(query: str, image_url: str | None = None) -> ProductDetails:
         print(f"[SearchTool] Searching product details for: ${query}")
         summary = (
             "Likely a consumer product suitable for online resale. "
@@ -111,8 +127,14 @@ async def create_agent(**kwargs) -> Agent:
         ]
         if image_url:
             facts.append(f"Reference image: {image_url}")
-        return {"summary": summary, "facts": facts, "confidence": 0.56}
+        return ProductDetails(
+            name="Product Name",
+            description=summary,
+            specifications=f"{', '.join(facts)}",
+            pricing=f"${random.uniform(10, 1000):.2f}",
+        )
 
+    processor = _get_object_capture_processor()
     agent = Agent(
         edge=getstream.Edge(),
         agent_user=User(name="Assistant", id="agent"),
@@ -122,21 +144,14 @@ async def create_agent(**kwargs) -> Agent:
             "a structured product description."
         ),
         llm=llm,
-        processors=[capture_processor],
-    )
-    setattr(agent, "_capture_processor", capture_processor)
-    setattr(
-        agent,
-        "_fallback_tools",
-        {
-            "nano_banana_polish": nano_banana_polish,
-            "product_search": product_search,
-        },
+        processors=[processor],
     )
     return agent
 
 
-async def _call_tool(agent: Agent, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _call_tool(
+    agent: Agent, tool_name: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
     llm = getattr(agent, "llm", None)
     call_tool = getattr(llm, "call_tool", None)
     if callable(call_tool):
@@ -159,33 +174,33 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     await agent.create_user()
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
-        capture = getattr(agent, "_capture_processor", StubObjectCaptureProcessor())
+        capture = _get_object_capture_processor()
         stream_client = _get_stream_chat_client()
-        channel_type = os.getenv("STREAM_WORKFLOW_CHANNEL_TYPE", "messaging")
-        channel_id = _build_channel_id(call_id)
-        sender_user_id = os.getenv("STREAM_WORKFLOW_SENDER_USER_ID", "workflow-server")
+
         channel = await asyncio.to_thread(
-            _ensure_workflow_channel,
+            ensure_workflow_channel_is_created,
             stream_client,
-            channel_type=channel_type,
-            channel_id=channel_id,
-            server_user_id=sender_user_id,
+            channel_id=build_channel_id(call_id),
         )
-        progress_emitter = StreamEventEmitter(
+        event_emitter = StreamEventEmitter(
             channel=channel,
             context=WorkflowContext(
                 workflow_id=call_id,
-                channel_type=channel_type,
-                channel_id=channel_id,
-                sender_user_id=sender_user_id,
+                channel_type="messaging",
+                channel_id=channel.cid,
+                sender_user_id=os.getenv(
+                    "STREAM_WORKFLOW_SENDER_USER_ID", "workflow-server"
+                ),
             ),
         )
-        await progress_emitter.emit_workflow_started()
-        search = ProductSearchAdapter(tool_caller=lambda name, args: _call_tool(agent, name, args))
+        await event_emitter.emit_workflow_started()
+        search = ProductSearchAdapter(
+            tool_caller=lambda name, args: _call_tool(agent, name, args)
+        )
 
         orchestrator = TaskWorkflowOrchestrator(
             agent=agent,
-            progress_emitter=progress_emitter,
+            progress_emitter=event_emitter,
             capture_processor=capture,
             product_search=search,
             config=OrchestratorConfig(),
@@ -193,13 +208,13 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         try:
             description = await orchestrator.run()
         except Exception as exc:
-            await progress_emitter.emit_workflow_failed(
+            await event_emitter.emit_workflow_failed(
                 error_code=type(exc).__name__,
                 error_message=str(exc),
             )
             raise
 
-        await progress_emitter.emit_workflow_completed(
+        await event_emitter.emit_workflow_completed(
             result_summary=f"{description.title} ({description.confidence:.2f})"
         )
         await agent.simple_response(
@@ -208,6 +223,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             f"Confidence: {description.confidence:.2f}."
         )
         await agent.finish()
+
 
 # CORS configuration
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
@@ -222,4 +238,5 @@ serve_options = ServeOptions(
 )
 
 if __name__ == "__main__":
+    processor = _get_object_capture_processor()
     Runner(AgentLauncher(create_agent=create_agent, join_call=join_call)).cli()
