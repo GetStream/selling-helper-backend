@@ -28,7 +28,7 @@ class NanoBananaDirectConfig:
 
     api_key: str
     model: str = "gemini-3.1-flash-image-preview"
-    timeout_seconds: float = 45.0
+    timeout_seconds: float = 65.0
 
 
 class NanoBananaClient:
@@ -118,7 +118,7 @@ class NanoBananaClient:
                 return product_shot_image_path, image_mime
         raise NanoBananaAPIError("Nano Banana SDK response did not contain image data.")
 
-    def generate_product_shot(self, *, image_name: str, prompt: str) -> str:
+    async def generate_product_shot(self, *, image_name: str, prompt: str) -> str:
         print(f"[NanoBanana] Product shot from: {image_name} and prompt: {prompt}")
 
         # Get path for the image
@@ -142,7 +142,7 @@ class NanoBananaClient:
         )
 
         # Emit the image to the event emitter
-        self._event_emitter.emit_polished_image(
+        await self._event_emitter.emit_polished_image(
             product_shot_image_path, product_shot_image_mime
         )
 

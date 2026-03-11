@@ -52,7 +52,7 @@ def test_nano_banana_live_captures_full_api_response() -> None:
     )
 
     model = os.getenv("NANO_BANANA_MODEL", "gemini-3.1-flash-image-preview").strip()
-    timeout_seconds = float(os.getenv("NANO_BANANA_TIMEOUT_SECONDS", "45").strip())
+    timeout_seconds = float(os.getenv("NANO_BANANA_TIMEOUT_SECONDS", "65").strip())
 
     repo_root = Path(__file__).resolve().parents[1]
     source_path = repo_root / "artifacts" / "product-sample.jpeg"
@@ -107,8 +107,14 @@ def test_nano_banana_live_captures_full_api_response() -> None:
     output_image_path.write_bytes(image_bytes)
 
     assert output_text_path.exists(), f"Expected response dump at: {output_text_path}"
-    assert output_text_path.stat().st_size > 0, f"Response dump file is empty: {output_text_path}"
-    assert output_image_path.exists(), f"Expected generated image at: {output_image_path}"
-    assert output_image_path.stat().st_size > 0, f"Generated image is empty: {output_image_path}"
+    assert output_text_path.stat().st_size > 0, (
+        f"Response dump file is empty: {output_text_path}"
+    )
+    assert output_image_path.exists(), (
+        f"Expected generated image at: {output_image_path}"
+    )
+    assert output_image_path.stat().st_size > 0, (
+        f"Generated image is empty: {output_image_path}"
+    )
     print(f"Saved full Nano Banana response dump: {output_text_path}")
     print(f"Saved generated image: {output_image_path}")

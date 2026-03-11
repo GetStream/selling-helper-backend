@@ -31,7 +31,7 @@ class ObjectCaptureProcessor(VideoProcessor):
     def __init__(
         self,
         fps: int = 8,
-        min_ready_score: float = 0.62,
+        min_ready_score: float = 0.42,
         consecutive_ready_frames: int = 6,
         source_frame_filename: str = "captured_product_frame",
     ) -> None:

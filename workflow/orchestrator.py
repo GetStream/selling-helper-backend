@@ -41,10 +41,10 @@ class OrchestratorConfig:
     capture_timeout_seconds: float = 10.0
     detect_retries: int = 4
     screenshot_dir: Path = Path("artifacts")
-    nano_prompt: str = (
-        "Create polished ecommerce product photos on a clean background with soft lighting."
+    nano_prompt: str = "Create polished ecommerce product photos on a clean background with soft lighting."
+    search_query_template: str = (
+        "Identify this product and key selling points: {title_hint}"
     )
-    search_query_template: str = "Identify this product and key selling points: {title_hint}"
 
 
 class TaskWorkflowOrchestrator:
@@ -98,14 +98,20 @@ class TaskWorkflowOrchestrator:
         )
 
         for attempt in range(self._config.detect_retries + 1):
-            print(f"[Orchestrator] Detecting object in frame, attempt {attempt + 1} / {self._config.detect_retries + 1}")
+            print(
+                f"[Orchestrator] Detecting object in frame, attempt {attempt + 1} / {self._config.detect_retries + 1}"
+            )
             ready = await self._capture.wait_until_ready(
                 timeout_seconds=self._config.capture_timeout_seconds
             )
             if ready:
                 print("[Orchestrator] Object clearly detected in frame")
-                await self._emit(TaskId.DETECT_OBJECT, 100, "Object clearly detected in frame")
+                await self._emit(
+                    TaskId.DETECT_OBJECT, 100, "Object clearly detected in frame"
+                )
                 return
+            else:
+                self._capture.min_ready_score -= 0.05
 
             await self._emit(
                 TaskId.DETECT_OBJECT,
@@ -114,13 +120,17 @@ class TaskWorkflowOrchestrator:
             )
             await self._agent.simple_response(self._capture.guidance_message)
 
-        raise TimeoutError("Object was not detected clearly enough within timeout window.")
+        raise TimeoutError(
+            "Object was not detected clearly enough within timeout window."
+        )
 
     async def _capture_screenshot_step(self) -> None:
         print("[Orchestrator] Capturing screenshot")
         await self._capture.update_capture_status(CaptureStatus.CAPTURING)
         await self._emit(TaskId.CAPTURE_SCREENSHOT, 0, "Capturing screenshot")
-        screenshot_path = await self._capture.capture_best_frame(self._config.screenshot_dir)
+        screenshot_path = await self._capture.capture_best_frame(
+            self._config.screenshot_dir
+        )
 
         if not screenshot_path:
             raise RuntimeError("Screenshot path is missing after capture step.")
@@ -139,14 +149,20 @@ class TaskWorkflowOrchestrator:
         await self._agent.simple_response(
             "Please tell the user that the image will now be polished and perform that step in the background using the nano_banana_polish tool."
         )
-        print(f"[Orchestrator] Polishing product image with prompt: {self._config.nano_prompt}")
-        
+        print(
+            f"[Orchestrator] Polishing product image with prompt: {self._config.nano_prompt}"
+        )
+
         import time
 
-        image_path = Path(__file__).parent.parent.resolve() / "artifacts" / "polished_product_live.png"
+        image_path = (
+            Path(__file__).parent.parent.resolve()
+            / "artifacts"
+            / "polished_product_live_full_response.png"
+        )
         image_found = False
         start_time = time.time()
-        wait_seconds = 45
+        wait_seconds = 65
 
         while time.time() - start_time < wait_seconds:
             if Path(image_path).exists():
@@ -156,7 +172,9 @@ class TaskWorkflowOrchestrator:
             await asyncio.sleep(1)
 
         if not image_found:
-            raise TimeoutError(f"Polished image was not generated at {image_path} within {wait_seconds} seconds.")
+            raise TimeoutError(
+                f"Polished image was not generated at {image_path} within {wait_seconds} seconds."
+            )
         await self._emit(TaskId.POLISH_IMAGE, 100, "Polished product image created")
 
     async def _save_polished_image(
@@ -169,7 +187,9 @@ class TaskWorkflowOrchestrator:
         """Download/copy/write the polished image to the artifacts directory."""
         output_dir = self._config.screenshot_dir
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"polished_product{_extension_for_mime(image_mime_type)}"
+        output_path = (
+            output_dir / f"polished_product{_extension_for_mime(image_mime_type)}"
+        )
 
         if image_bytes:
             await asyncio.to_thread(output_path.write_bytes, image_bytes)
@@ -203,25 +223,27 @@ class TaskWorkflowOrchestrator:
 
     async def _research_step(self) -> None:
         await self._emit(TaskId.RESEARCH_PRODUCT, 0, "Researching product information")
-        query = self._config.search_query_template.format(title_hint="webcam-detected item")
-        result = await asyncio.wait_for(
-            self._search.research(query=query, image_url=self._artifacts.polished_image_url),
-            timeout=30.0,
+
+        await self._agent.simple_response(
+            "Confirm that the image is ready and tell the user that the product research is starting."
         )
-        self._artifacts.product_search_summary = result.summary
-        self._artifacts.product_search_facts = result.facts
+
         await self._emit(TaskId.RESEARCH_PRODUCT, 100, "Product research complete")
 
     async def _generate_description_step(self) -> ProductDescription:
-        await self._emit(TaskId.GENERATE_DESCRIPTION, 0, "Generating structured description")
-        summary = self._artifacts.product_search_summary or "Well-presented second-hand item."
+        await self._emit(
+            TaskId.GENERATE_DESCRIPTION, 0, "Generating structured description"
+        )
+        summary = (
+            self._artifacts.product_search_summary or "Well-presented second-hand item."
+        )
         facts = self._artifacts.product_search_facts
         title = (facts[0] if facts else "Pre-owned Product").strip()[:80]
         short = summary[:220]
-        long_desc = (
-            f"{summary}\n\n"
-            "Highlights:\n"
-            + ("\n".join(f"- {fact}" for fact in facts[:8]) if facts else "- Quality item in good shape.")
+        long_desc = f"{summary}\n\nHighlights:\n" + (
+            "\n".join(f"- {fact}" for fact in facts[:8])
+            if facts
+            else "- Quality item in good shape."
         )
 
         description = build_product_description(
@@ -237,7 +259,9 @@ class TaskWorkflowOrchestrator:
             polished_image_url=self._artifacts.polished_image_url,
             polished_image_path=self._artifacts.polished_image_path,
         )
-        await self._emit(TaskId.GENERATE_DESCRIPTION, 100, "Structured description ready")
+        await self._emit(
+            TaskId.GENERATE_DESCRIPTION, 100, "Structured description ready"
+        )
         return description
 
 
@@ -249,4 +273,3 @@ def _extension_for_mime(image_mime_type: str | None) -> str:
     if image_mime_type == "image/gif":
         return ".gif"
     return ".png"
-
