@@ -98,10 +98,10 @@ async def create_agent(**kwargs) -> Agent:
         name="nano_banana_polish",
         description="Create polished ecommerce product screenshots from the source image.",
     )
-    def nano_banana_polish(prompt: str) -> dict[str, Any]:
+    async def nano_banana_polish(prompt: str) -> dict[str, Any]:
         try:
             nano_banana_client = NanoBananaClient(event_emitter=_get_event_emitter())
-            return nano_banana_client.generate_product_shot(
+            return await nano_banana_client.generate_product_shot(
                 image_name=CAPTURED_PRODUCT_IMAGE_FILENAME, prompt=prompt
             )
         except NanoBananaConfigurationError as exc:
@@ -114,7 +114,9 @@ async def create_agent(**kwargs) -> Agent:
         name="product_search",
         description="Search product details and likely features for a photographed item.",
     )
-    def product_search(query: str, image_url: str | None = None) -> ProductDetails:
+    async def product_search(
+        query: str, image_url: str | None = None
+    ) -> ProductDetails:
         print(f"[SearchTool] Searching product details for: ${query}")
         summary = (
             "Likely a consumer product suitable for online resale. "
@@ -171,7 +173,7 @@ async def _call_tool(
 
 async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> None:
     """Join call and execute the full staged task workflow."""
-    await agent.create_user()
+    await agent.authenticate()
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
         capture = _get_object_capture_processor()
