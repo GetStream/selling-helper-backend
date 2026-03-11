@@ -10,7 +10,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "python-dotenv>=1.2.1",
     "stream-chat>=4.31.0",
-    "vision-agents[gemini,getstream]>=0.4.1",
+    "vision-agents[gemini,getstream]>=0.4.2",
 ]
 
 [project.optional-dependencies]
