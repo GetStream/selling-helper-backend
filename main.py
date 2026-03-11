@@ -6,7 +6,6 @@ import asyncio
 import inspect
 import os
 import random
-from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
@@ -15,27 +14,21 @@ from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
 
-from helpers import build_channel_id, ensure_workflow_channel_is_created
+from helpers import ProductDetails, build_channel_id, ensure_workflow_channel_is_created
 from integrations.nano_banana import (
     NanoBananaClient,
     NanoBananaConfigurationError,
 )
 from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import ObjectCaptureProcessor
-from workflow.events import EventEmitter, StreamEventEmitter, WorkflowContext
+from workflow.events import (
+    EventEmitter,
+    StreamEventEmitter,
+    WorkflowContext,
+)
 from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
 
 load_dotenv()
-
-
-@dataclass(slots=True)
-class ProductDetails:
-    """Details of the searched product."""
-
-    name: str
-    description: str
-    specifications: str
-    pricing: str
 
 
 # Global variables
@@ -99,8 +92,10 @@ async def create_agent(**kwargs) -> Agent:
         description="Create polished ecommerce product screenshots from the source image.",
     )
     async def nano_banana_polish(prompt: str) -> dict[str, Any]:
+        print(f"[Main] nano_banana_polish({prompt})")
         try:
-            nano_banana_client = NanoBananaClient(event_emitter=_get_event_emitter())
+            event_emitter = _get_event_emitter()
+            nano_banana_client = NanoBananaClient(event_emitter=event_emitter)
             return await nano_banana_client.generate_product_shot(
                 image_name=CAPTURED_PRODUCT_IMAGE_FILENAME, prompt=prompt
             )
@@ -129,6 +124,16 @@ async def create_agent(**kwargs) -> Agent:
         ]
         if image_url:
             facts.append(f"Reference image: {image_url}")
+
+        event_emitter = _get_event_emitter()
+        await event_emitter.emit_product_details(
+            ProductDetails(
+                name="Product Name",
+                description=summary,
+                specifications=f"{', '.join(facts)}",
+                pricing=f"${random.uniform(10, 1000):.2f}",
+            )
+        )
         return ProductDetails(
             name="Product Name",
             description=summary,
@@ -184,17 +189,10 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
             stream_client,
             channel_id=build_channel_id(call_id),
         )
-        event_emitter = StreamEventEmitter(
-            channel=channel,
-            context=WorkflowContext(
-                workflow_id=call_id,
-                channel_type="messaging",
-                channel_id=channel.cid,
-                sender_user_id=os.getenv(
-                    "STREAM_WORKFLOW_SENDER_USER_ID", "workflow-server"
-                ),
-            ),
-        )
+
+        event_emitter = _get_event_emitter()
+        event_emitter.update_channel(channel)
+
         await event_emitter.emit_workflow_started()
         search = ProductSearchAdapter(
             tool_caller=lambda name, args: _call_tool(agent, name, args)
