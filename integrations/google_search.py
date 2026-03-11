@@ -10,7 +10,7 @@ class GoogleSearchClient:
     def __init__(
         self,
         *,
-        model: str = "gemini-3.1-flash-image-preview",
+        model: str = "gemini-3-flash-preview",
         event_emitter: EventEmitter,
     ) -> None:
         self._event_emitter = event_emitter

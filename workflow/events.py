@@ -121,7 +121,7 @@ class StreamEventEmitter:
         upload_response = self._channel.send_image(
             image_path,
             image_path,
-            "workflow-server",
+            {"id": "workflow-server"},
             content_type=image_mime_type,
         )
 

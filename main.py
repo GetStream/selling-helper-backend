@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import os
 import random
 from typing import Any
@@ -19,7 +18,6 @@ from integrations.nano_banana import (
     NanoBananaClient,
     NanoBananaConfigurationError,
 )
-from integrations.product_search import ProductSearchAdapter
 from processors.object_capture import ObjectCaptureProcessor
 from workflow.events import (
     EventEmitter,
@@ -35,6 +33,16 @@ load_dotenv()
 _stream_chat_client: StreamChat | None = None
 _event_emitter: EventEmitter | None = None
 _object_capture_processor: ObjectCaptureProcessor | None = None
+_nano_banana_client: NanoBananaClient | None = None
+
+
+def _get_nano_banana_client() -> NanoBananaClient:
+    global _nano_banana_client
+    if _nano_banana_client is not None:
+        return _nano_banana_client
+    _nano_banana_client = NanoBananaClient(event_emitter=_get_event_emitter())
+    return _nano_banana_client
+
 
 # Constants
 CAPTURED_PRODUCT_IMAGE_FILENAME = "captured_product_frame"
@@ -94,11 +102,13 @@ async def create_agent(**kwargs) -> Agent:
     async def nano_banana_polish(prompt: str) -> dict[str, Any]:
         print(f"[Main] nano_banana_polish({prompt})")
         try:
-            event_emitter = _get_event_emitter()
-            nano_banana_client = NanoBananaClient(event_emitter=event_emitter)
-            return await nano_banana_client.generate_product_shot(
+            nano_banana_client = _get_nano_banana_client()
+
+            product_shot_result = await nano_banana_client.generate_product_shot(
                 image_name=CAPTURED_PRODUCT_IMAGE_FILENAME, prompt=prompt
             )
+
+            return product_shot_result
         except NanoBananaConfigurationError as exc:
             raise RuntimeError(
                 "Nano Banana is not configured. Set NANO_BANANA_API_KEY "
@@ -112,7 +122,7 @@ async def create_agent(**kwargs) -> Agent:
     async def product_search(
         query: str, image_url: str | None = None
     ) -> ProductDetails:
-        print(f"[SearchTool] Searching product details for: ${query}")
+        print(f"[Main] Searching product details for: ${query}")
         summary = (
             "Likely a consumer product suitable for online resale. "
             "Use concise feature bullets and a condition-focused listing."
@@ -124,6 +134,9 @@ async def create_agent(**kwargs) -> Agent:
         ]
         if image_url:
             facts.append(f"Reference image: {image_url}")
+
+        # Wait for 3 seconds to simulate product research
+        await asyncio.sleep(3)
 
         event_emitter = _get_event_emitter()
         await event_emitter.emit_product_details(
@@ -148,32 +161,12 @@ async def create_agent(**kwargs) -> Agent:
         instructions=(
             "You are a product-listing assistant. Guide the user to frame an item, "
             "capture it, polish images via tools, research product info, and produce "
-            "a structured product description."
+            "a structured product description. Always answer in short, clear sentences."
         ),
         llm=llm,
         processors=[processor],
     )
     return agent
-
-
-async def _call_tool(
-    agent: Agent, tool_name: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
-    llm = getattr(agent, "llm", None)
-    call_tool = getattr(llm, "call_tool", None)
-    if callable(call_tool):
-        result = await call_tool(tool_name, arguments)
-        return result if isinstance(result, dict) else {"result": result}
-
-    fallback_tools = getattr(agent, "_fallback_tools", {})
-    tool = fallback_tools.get(tool_name)
-    if tool is None:
-        raise RuntimeError(f"Tool not found: {tool_name}")
-
-    result = tool(**arguments)
-    if inspect.isawaitable(result):
-        result = await result
-    return result if isinstance(result, dict) else {"result": result}
 
 
 async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> None:
@@ -194,19 +187,17 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
         event_emitter.update_channel(channel)
 
         await event_emitter.emit_workflow_started()
-        search = ProductSearchAdapter(
-            tool_caller=lambda name, args: _call_tool(agent, name, args)
-        )
+        nano_banana_client = _get_nano_banana_client()
 
-        orchestrator = TaskWorkflowOrchestrator(
+        _orchestrator = TaskWorkflowOrchestrator(
             agent=agent,
             progress_emitter=event_emitter,
             capture_processor=capture,
-            product_search=search,
+            nano_banana_client=nano_banana_client,
             config=OrchestratorConfig(),
         )
         try:
-            description = await orchestrator.run()
+            description = await _orchestrator.run()
         except Exception as exc:
             await event_emitter.emit_workflow_failed(
                 error_code=type(exc).__name__,

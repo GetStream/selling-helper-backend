@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,7 @@ class NanoBananaClient:
             model=model,
             timeout_seconds=timeout_seconds,
         )
+        self._ready_event = asyncio.Event()
 
     def _get_image_folder(self) -> str:
         """Get the path to the image folder."""
@@ -112,7 +114,7 @@ class NanoBananaClient:
                 image = part.as_image()
                 image_mime = part.inline_data.mime_type
                 product_shot_image_path = (
-                    f"{folder_path}/generated_image-${get_date_and_time_now()}.png"
+                    f"{folder_path}/generated_image-{get_date_and_time_now()}.png"
                 )
                 image.save(product_shot_image_path)
                 return product_shot_image_path, image_mime
@@ -146,4 +148,13 @@ class NanoBananaClient:
             product_shot_image_path, product_shot_image_mime
         )
 
+        self._ready_event.set()
+
         return "Product image was generated successfully"
+
+    async def wait_until_ready(self, timeout_seconds: float = 30.0) -> bool:
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout_seconds)
+            return True
+        except TimeoutError:
+            return False

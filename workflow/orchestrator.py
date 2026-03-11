@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import unquote, urlparse
 
-from integrations.product_search import ProductSearchAdapter
-from processors.object_capture import CaptureStatus
+from integrations.nano_banana import NanoBananaClient
+from processors.object_capture import CaptureStatus, ObjectCaptureProcessor
 from schemas.product_description import ProductDescription, build_product_description
 from workflow.events import EventEmitter
 from workflow.models import TaskId, TaskProgress, TaskState, WorkflowArtifacts
@@ -21,17 +21,6 @@ class SupportsSimpleResponse(Protocol):
     """Small protocol to keep orchestrator decoupled from Agent concrete type."""
 
     async def simple_response(self, text: str) -> None: ...
-
-
-class SupportsCapture(Protocol):
-    """Protocol for object readiness and frame capture dependency."""
-
-    guidance_message: str
-
-    async def update_capture_status(self, is_capture_active: bool) -> None: ...
-
-    async def wait_until_ready(self, timeout_seconds: float = 20.0) -> bool: ...
-    async def capture_best_frame(self, output_dir: Path) -> Path: ...
 
 
 @dataclass(slots=True)
@@ -55,16 +44,20 @@ class TaskWorkflowOrchestrator:
         *,
         agent: SupportsSimpleResponse,
         progress_emitter: EventEmitter,
-        capture_processor: SupportsCapture,
-        product_search: ProductSearchAdapter,
+        capture_processor: ObjectCaptureProcessor,
+        nano_banana_client: NanoBananaClient,
         config: OrchestratorConfig | None = None,
     ) -> None:
         self._agent = agent
         self._progress = progress_emitter
         self._capture = capture_processor
-        self._search = product_search
+        self._nano_banana = nano_banana_client
         self._config = config or OrchestratorConfig()
         self._artifacts = WorkflowArtifacts()
+        self._image_polish_finished = False
+
+    def _set_image_polish_finished(self, finished: bool) -> None:
+        self._image_polish_finished = finished
 
     async def run(self) -> ProductDescription:
         print("[Orchestrator] Running workflow")
@@ -92,14 +85,14 @@ class TaskWorkflowOrchestrator:
 
     async def _detect_object_step(self) -> None:
         await self._emit(TaskId.DETECT_OBJECT, 0, "Detecting object in frame")
-        await self._capture.update_capture_status(CaptureStatus.DETECTING)
         await self._agent.simple_response(
-            "Please hold your item in front of the webcam. I will guide you automatically."
+            "Ask the user to hold an item in front of the webcam."
         )
 
+        await self._capture.update_capture_status(CaptureStatus.DETECTING)
         for attempt in range(self._config.detect_retries + 1):
             print(
-                f"[Orchestrator] Detecting object in frame, attempt {attempt + 1} / {self._config.detect_retries + 1}"
+                f"[Orchestrator] Detecting object in frame, attempt {attempt + 1} / {self._config.detect_retries + 1} (Processor: {self._capture.capture_status})"
             )
             ready = await self._capture.wait_until_ready(
                 timeout_seconds=self._config.capture_timeout_seconds
@@ -153,29 +146,34 @@ class TaskWorkflowOrchestrator:
             f"[Orchestrator] Polishing product image with prompt: {self._config.nano_prompt}"
         )
 
-        import time
-
-        image_path = (
-            Path(__file__).parent.parent.resolve()
-            / "artifacts"
-            / "polished_product_live_full_response.png"
-        )
-        image_found = False
-        start_time = time.time()
-        wait_seconds = 65
-
-        while time.time() - start_time < wait_seconds:
-            if Path(image_path).exists():
-                image_found = True
-                print(f"[Orchestrator] Polished image found at: {image_path}")
-                break
-            await asyncio.sleep(1)
-
-        if not image_found:
-            raise TimeoutError(
-                f"Polished image was not generated at {image_path} within {wait_seconds} seconds."
+        for attempt in range(self._config.polish_retries + 1):
+            print(
+                f"[Orchestrator] Waiting for image polish to finish (Attempt {attempt + 1} / {self._config.polish_retries + 1})"
             )
-        await self._emit(TaskId.POLISH_IMAGE, 100, "Polished product image created")
+            ready = await self._nano_banana.wait_until_ready(
+                timeout_seconds=self._config.capture_timeout_seconds
+            )
+            if ready:
+                print("[Orchestrator] Object clearly detected in frame")
+                await self._emit(
+                    TaskId.POLISH_IMAGE, 100, "Polished product image created"
+                )
+                return
+
+            await self._emit(
+                TaskId.POLISH_IMAGE,
+                min(85, 30 + (attempt * 20)),
+                "Still waiting for polished image to be created",
+            )
+        raise TimeoutError(
+            "Object was not detected clearly enough within timeout window."
+        )
+
+        while not self._image_polish_finished:
+            print(
+                f"[Orchestrator] Waiting for image polish to finish (Status: {self._image_polish_finished})"
+            )
+            await asyncio.sleep(1)
 
     async def _save_polished_image(
         self,

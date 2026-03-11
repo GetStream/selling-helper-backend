@@ -44,7 +44,7 @@ class ObjectCaptureProcessor(VideoProcessor):
         self._forwarder: VideoForwarder | None = None
         self._ready_event = asyncio.Event()
         self._ready_streak = 0
-        self._latest_guidance = "Center the item and hold it steady."
+        self._latest_guidance = "Tell the user to hold the item in the center of the webcam and hold it steady."
         self._best_score = 0.0
         self._best_frame: av.VideoFrame | None = None
 
@@ -77,9 +77,13 @@ class ObjectCaptureProcessor(VideoProcessor):
         )
 
     async def update_capture_status(self, capture_status: CaptureStatus) -> None:
+        print(f"[ObjectCaptureProcessor] Updating capture status to {capture_status}")
         self.capture_status = capture_status
 
     async def _handle_frame(self, frame: av.VideoFrame) -> None:
+        print(
+            f"[ObjectCaptureProcessor] Handling frame (Capture status: {self.capture_status})"
+        )
         # If the capture is inactive, skip frame analysis.
         if self.capture_status == CaptureStatus.INACTIVE:
             print(
@@ -88,6 +92,7 @@ class ObjectCaptureProcessor(VideoProcessor):
             return
 
         if self.capture_status == CaptureStatus.DETECTING:
+            print("[ObjectCaptureProcessor] Analyzing frame")
             score, guidance = self._analyze_frame(frame)
             self._latest_guidance = guidance
 
@@ -122,7 +127,7 @@ class ObjectCaptureProcessor(VideoProcessor):
         edge_score = min(edge_strength / 18.0, 1.0)
 
         score = (0.3 * brightness_score) + (0.35 * contrast_score) + (0.35 * edge_score)
-
+        print(f"[ObjectCaptureProcessor] Score: {score}")
         if brightness < 65:
             return score, "Increase lighting so the product is clearly visible."
         if brightness > 210:
