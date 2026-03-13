@@ -2,7 +2,7 @@ from google import genai
 from google.genai import types
 
 from workflow.events import EventEmitter
-from workflow.models import ProductDetails
+from workflow.models import ProductDetails, TaskId, TaskProgress
 
 
 class GoogleSearchClient:
@@ -32,10 +32,26 @@ class GoogleSearchClient:
             config=self._config,
         )
         print(f"[GoogleSearchClient] Response: {response}")
-        print(f"[GoogleSearchClient] Response JSON: {response.model_dump(mode="json", exclude_none=False)}")
+        print(
+            f"[GoogleSearchClient] Response JSON: {response.model_dump(mode='json', exclude_none=False)}"
+        )
+
+        self._event_emitter.emit(
+            TaskProgress(
+                task_id=TaskId.RESEARCH_PRODUCT,
+                progress=100,
+                message="Google search completed",
+            )
+        )
+
+        self._event_emitter.emit(
+            TaskProgress(
+                task_id=TaskId.GENERATE_DESCRIPTION,
+                progress=100,
+                message="Product details generated",
+            )
+        )
 
         product_details = ProductDetails.model_validate_json(response.text)
-        self._event_emitter.emit_product_details(
-            product_details
-        )
+        self._event_emitter.emit_product_details(product_details)
         return response.text
