@@ -13,6 +13,7 @@ from google.genai import types
 
 from helpers import get_date_and_time_now
 from workflow.events import EventEmitter
+from workflow.models import TaskId, TaskProgress
 
 
 class NanoBananaConfigurationError(RuntimeError):
@@ -143,9 +144,18 @@ class NanoBananaClient:
         )
 
         # Emit the image to the event emitter
-        await self._event_emitter.emit_polished_image(
+        upload_response = await self._event_emitter.emit_polished_image(
             product_shot_image_path, product_shot_image_mime
         )
+
+        await self._event_emitter.emit(
+            TaskProgress(
+                task_id=TaskId.POLISH_IMAGE,
+                progress=100,
+                message="Product image was generated successfully",
+            )
+        )
+        print(f"[NanoBanana] Upload response: {upload_response}")
 
         return "Product image was generated successfully"
 

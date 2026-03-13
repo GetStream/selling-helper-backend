@@ -7,6 +7,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Protocol
 
 from stream_chat import StreamChat
@@ -19,6 +20,21 @@ logger = logging.getLogger(__name__)
 
 def _utc_timestamp() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _extract_uploaded_asset_url(upload_response: dict[str, Any]) -> str | None:
+    direct_url = upload_response.get("file") or upload_response.get("url")
+    if isinstance(direct_url, str) and direct_url.strip():
+        return direct_url
+
+    nested_file = upload_response.get("file")
+    if isinstance(nested_file, dict):
+        for key in ("url", "asset_url", "image_url"):
+            value = nested_file.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+
+    return None
 
 
 @dataclass
@@ -36,7 +52,7 @@ class EventEmitter(Protocol):
 
     async def emit(self, update: TaskProgress) -> dict[str, Any]: ...
     async def emit_polished_image(
-        self, image_data: bytes, image_mime_type: str
+        self, image_path: str, image_mime_type: str
     ) -> dict[str, Any]: ...
 
 
@@ -124,20 +140,60 @@ class StreamEventEmitter:
     async def emit_polished_image(
         self, image_path: str, image_mime_type: str
     ) -> dict[str, Any]:
-        """Emit a polished image event to the channel."""
-        print(
-            f"[StreamTaskProgressEmitter] Emitting polished image: {image_path} with mime type: {image_mime_type} to channel: {self._context.channel_type}:{self._context.channel_id} sender: {self._context.sender_user_id}"
+        """Upload and publish a polished image as a channel message."""
+        sender_user = {
+            "id": self._context.sender_user_id,
+            "name": "Workflow Server",
+        }
+        image_name = Path(image_path).name
+        logger.info(
+            "Sending polished image channel=%s:%s sender=%s image=%s",
+            self._context.channel_type,
+            self._context.channel_id,
+            self._context.sender_user_id,
+            image_name,
         )
+        try:
+            upload_response = await asyncio.to_thread(
+                self._channel.send_image,
+                image_path,
+                image_name,
+                sender_user,
+                content_type=image_mime_type,
+            )
+            uploaded_asset_url = _extract_uploaded_asset_url(upload_response)
+            if not uploaded_asset_url:
+                raise RuntimeError(
+                    f"Could not determine uploaded image URL from response: {upload_response}"
+                )
 
-        SENDER_USER_ID = "workflow-server"
-        SENDER_USER = {"id": SENDER_USER_ID, "name": "Workflow Server"}
-
-        upload_response = self._channel.send_image(
-            image_path, image_path, SENDER_USER, content_type="image/png"
-        )
-
-        print(f"[StreamTaskProgressEmitter] Upload response: {upload_response}")
-        return upload_response
+            message = {
+                "text": "Generated polished product image.",
+                "attachments": [
+                    {
+                        "type": "image",
+                        "asset_url": uploaded_asset_url,
+                        "image_url": uploaded_asset_url,
+                        "title": image_name,
+                    }
+                ],
+            }
+            message_response = await asyncio.to_thread(
+                self._channel.send_message,
+                message,
+                self._context.sender_user_id,
+            )
+            logger.info(
+                "Polished image message sent workflow_id=%s message_id=%s",
+                self._context.workflow_id,
+                message_response.get("message", message_response).get("id"),
+            )
+        except Exception:
+            logger.exception("Failed to send polished image message")
+            if self._strict:
+                raise
+            return {}
+        return message_response
 
     async def emit_product_details(
         self, product_details: ProductDetails

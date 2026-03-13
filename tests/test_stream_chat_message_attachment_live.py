@@ -10,9 +10,9 @@ Run command:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 import requests
@@ -20,13 +20,13 @@ from dotenv import load_dotenv
 from stream_chat import StreamChat
 
 from helpers import ensure_workflow_channel_is_created
+from workflow.events import StreamEventEmitter, WorkflowContext
 
 load_dotenv()
 
 CHANNEL_TYPE = "messaging"
 CHANNEL_ID = "workflow-7430192471"
 SENDER_USER_ID = "workflow-server"
-SENDER_USER = {"id": SENDER_USER_ID, "name": "Workflow Server"}
 
 
 def _require_env(name: str) -> str:
@@ -36,21 +36,6 @@ def _require_env(name: str) -> str:
             f"Missing required environment variable for live Stream test: {name}"
         )
     return value
-
-
-def _extract_uploaded_asset_url(upload_response: dict[str, Any]) -> str | None:
-    direct_url = upload_response.get("file") or upload_response.get("url")
-    if isinstance(direct_url, str) and direct_url.strip():
-        return direct_url
-
-    nested_file = upload_response.get("file")
-    if isinstance(nested_file, dict):
-        for key in ("url", "asset_url", "image_url"):
-            value = nested_file.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-
-    return None
 
 
 def test_stream_live_sends_chat_message_with_image_attachment() -> None:
@@ -64,40 +49,23 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
 
     client = StreamChat(api_key=api_key, api_secret=api_secret)
     channel = ensure_workflow_channel_is_created(client, channel_id=CHANNEL_ID)
+    event_emitter = StreamEventEmitter(
+        channel=channel,
+        context=WorkflowContext(
+            workflow_id="7430192471",
+            channel_type="messaging",
+            channel_id="workflow-7430192471",
+            sender_user_id="workflow-server",
+        ),
+        strict=True,
+    )
+
     try:
-        client.upsert_user(SENDER_USER)
-        channel.create(SENDER_USER_ID)
-        upload_response = channel.send_image(
-            str(image_path),
-            image_path.name,
-            SENDER_USER,
-            content_type="image/png",
+        send_response = asyncio.run(
+            event_emitter.emit_polished_image(str(image_path), "image/png")
         )
     except requests.RequestException as exc:
         pytest.skip(f"Live Stream test could not reach Stream API: {exc}")
-
-    uploaded_asset_url = _extract_uploaded_asset_url(upload_response)
-    assert uploaded_asset_url, (
-        f"Could not determine uploaded image URL from response: {upload_response}"
-    )
-
-    message = {
-        "text": "Live test message with polished product image attachment.",
-        "attachments": [
-            {
-                "type": "image",
-                "asset_url": uploaded_asset_url,
-                "image_url": uploaded_asset_url,
-                "title": image_path.name,
-            }
-        ],
-    }
-    try:
-        send_response = channel.send_message(message, SENDER_USER_ID)
-    except requests.RequestException as exc:
-        pytest.skip(
-            f"Live Stream test could not send message due to network error: {exc}"
-        )
 
     assert isinstance(send_response, dict)
     sent_message = send_response.get("message", send_response)
@@ -109,6 +77,7 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
     assert attachments, f"Expected message attachments in response: {send_response}"
     first_attachment = attachments[0]
     assert isinstance(first_attachment, dict)
+    assert first_attachment.get("title") == image_path.name
     assert (
         first_attachment.get("asset_url")
         or first_attachment.get("image_url")

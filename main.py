@@ -13,7 +13,6 @@ from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
 
-from workflow.models import ProductDetails
 from integrations.google_search import GoogleSearchClient
 from integrations.nano_banana import (
     NanoBananaClient,
@@ -25,7 +24,7 @@ from workflow.events import (
     StreamEventEmitter,
     WorkflowContext,
 )
-from workflow.models import TaskId, TaskProgress
+from workflow.models import ProductDetails, TaskId, TaskProgress
 
 load_dotenv()
 
@@ -46,7 +45,7 @@ def _get_nano_banana_client() -> NanoBananaClient:
 
 
 # Constants
-CAPTURED_PRODUCT_IMAGE_FILENAME = "captured_product_frame"
+CAPTURED_PRODUCT_IMAGE_FILENAME = "product-sample"
 
 
 def _get_event_emitter() -> EventEmitter:
@@ -191,8 +190,17 @@ async def create_agent(**kwargs) -> Agent:
                 error_message=str(exc),
             )
             return "Failed to retrieve product details."
-        
+
         return "Retrieved product details successfully."
+
+    # @llm.register_function(
+    #     name="update_product_page_with_translation",
+    #     description="Update the product page with the translated product details.",
+    # )
+    # def update_product_page(product_details: ProductDetails):
+    #     print(f"[Main] Updating product page with: {product_details}")
+    #     _get_event_emitter().emit_product_details(product_details)
+    #     return "Product page updated successfully."
 
     processor = _get_object_capture_processor()
     agent = Agent(
@@ -213,7 +221,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
         await agent.simple_response("Greet the user and ask them to start the process")
-        
+
         await agent.finish()
 
 
