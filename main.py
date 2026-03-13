@@ -181,26 +181,25 @@ async def create_agent(**kwargs) -> Agent:
 
         try:
             search_client = GoogleSearchClient(event_emitter=_get_event_emitter())
-            search_results = search_client.perform_google_search(query=query)
+            search_results = await search_client.perform_google_search(query=query)
             print(f"[Main] Search results: {search_results}")
+            return search_results
         except Exception as exc:
             print(f"[Main] Error searching product details: {exc}")
-            _get_event_emitter().emit_workflow_failed(
+            await _get_event_emitter().emit_workflow_failed(
                 error_code=type(exc).__name__,
                 error_message=str(exc),
             )
-            return "Failed to retrieve product details."
+            raise exc
 
-        return "Retrieved product details successfully."
-
-    # @llm.register_function(
-    #     name="update_product_page_with_translation",
-    #     description="Update the product page with the translated product details.",
-    # )
-    # def update_product_page(product_details: ProductDetails):
-    #     print(f"[Main] Updating product page with: {product_details}")
-    #     _get_event_emitter().emit_product_details(product_details)
-    #     return "Product page updated successfully."
+    @llm.register_function(
+        name="update_product_page_with_translation",
+        description="Update the product page with the translated product details.",
+    )
+    async def update_product_page(product_details: ProductDetails):
+        print(f"[Main] Updating product page with: {product_details}")
+        _get_event_emitter().emit_product_details(product_details)
+        return "Product page updated successfully."
 
     processor = _get_object_capture_processor()
     agent = Agent(
