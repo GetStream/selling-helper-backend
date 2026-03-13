@@ -170,7 +170,6 @@ class StreamEventEmitter:
             self._context.sender_user_id,
             payload,
         )
-        self._channel.send_event()
         try:
             await asyncio.to_thread(
                 self._channel.send_event,
