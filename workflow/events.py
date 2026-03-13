@@ -11,8 +11,8 @@ from typing import Any, Protocol
 
 from stream_chat import StreamChat
 
-from helpers import ProductDetails, ensure_workflow_channel_is_created
-from workflow.models import TaskProgress
+from helpers import ensure_workflow_channel_is_created
+from workflow.models import ProductDetails, TaskProgress
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def _utc_timestamp() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
-@dataclass(slots=True)
+@dataclass
 class WorkflowContext:
     """Immutable metadata shared across workflow events."""
 

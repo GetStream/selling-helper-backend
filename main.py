@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-import random
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +13,8 @@ from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
 
-from helpers import ProductDetails
+from workflow.models import ProductDetails
+from integrations.google_search import GoogleSearchClient
 from integrations.nano_banana import (
     NanoBananaClient,
     NanoBananaConfigurationError,
@@ -179,37 +178,21 @@ async def create_agent(**kwargs) -> Agent:
     async def product_search(
         query: str, image_url: str | None = None
     ) -> ProductDetails:
-        print(f"[Main] Searching product details for: ${query}")
-        summary = (
-            "Likely a consumer product suitable for online resale. "
-            "Use concise feature bullets and a condition-focused listing."
-        )
-        facts = [
-            "Detected from webcam image",
-            f"Search query: {query}",
-            "Recommended to include size/model specifics if known",
-        ]
-        if image_url:
-            facts.append(f"Reference image: {image_url}")
+        print(f"[Main] Searching product details for: {query}")
 
-        # Wait for 3 seconds to simulate product research
-        await asyncio.sleep(3)
-
-        event_emitter = _get_event_emitter()
-        await event_emitter.emit_product_details(
-            ProductDetails(
-                name="Product Name",
-                description=summary,
-                specifications=f"{', '.join(facts)}",
-                pricing=f"${random.uniform(10, 1000):.2f}",
+        try:
+            search_client = GoogleSearchClient(event_emitter=_get_event_emitter())
+            search_results = search_client.perform_google_search(query=query)
+            print(f"[Main] Search results: {search_results}")
+        except Exception as exc:
+            print(f"[Main] Error searching product details: {exc}")
+            _get_event_emitter().emit_workflow_failed(
+                error_code=type(exc).__name__,
+                error_message=str(exc),
             )
-        )
-        return ProductDetails(
-            name="Product Name",
-            description=summary,
-            specifications=f"{', '.join(facts)}",
-            pricing=f"${random.uniform(10, 1000):.2f}",
-        )
+            return "Failed to retrieve product details."
+        
+        return "Retrieved product details successfully."
 
     processor = _get_object_capture_processor()
     agent = Agent(
@@ -230,45 +213,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
         await agent.simple_response("Greet the user and ask them to start the process")
-        # capture = _get_object_capture_processor()
-        # stream_client = _get_stream_chat_client()
-
-        # channel = await asyncio.to_thread(
-        #     ensure_workflow_channel_is_created,
-        #     stream_client,
-        #     channel_id=build_channel_id(call_id),
-        # )
-
-        # event_emitter = _get_event_emitter()
-        # event_emitter.update_channel(channel)
-
-        # await event_emitter.emit_workflow_started()
-        # nano_banana_client = _get_nano_banana_client()
-
-        # _orchestrator = TaskWorkflowOrchestrator(
-        #     agent=agent,
-        #     progress_emitter=event_emitter,
-        #     capture_processor=capture,
-        #     nano_banana_client=nano_banana_client,
-        #     config=OrchestratorConfig(),
-        # )
-        # try:
-        #     description = await _orchestrator.run()
-        # except Exception as exc:
-        #     await event_emitter.emit_workflow_failed(
-        #         error_code=type(exc).__name__,
-        #         error_message=str(exc),
-        #     )
-        #     raise
-
-        # await event_emitter.emit_workflow_completed(
-        #     result_summary=f"{description.title} ({description.confidence:.2f})"
-        # )
-        # await agent.simple_response(
-        #     "Product page draft is ready. "
-        #     f"Title: {description.title}. "
-        #     f"Confidence: {description.confidence:.2f}."
-        # )
+        
         await agent.finish()
 
 

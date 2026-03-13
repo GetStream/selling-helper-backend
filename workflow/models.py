@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+
+# from enum import StrEnum
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
-class TaskId(StrEnum):
+class ProductDetails(BaseModel):
+    name: str = Field(description="The name of the product.")
+    description: str = Field(description="The description of the product.")
+    specifications: str = Field(description="The specifications of the product.")
+    pricing: float = Field(description="The pricing of the product in USD.")
+
+
+class TaskId(Enum):
     """Stable task identifiers shared with the frontend."""
 
     DETECT_OBJECT = "detect-object"
@@ -16,7 +27,7 @@ class TaskId(StrEnum):
     GENERATE_DESCRIPTION = "generate-description"
 
 
-class TaskState(StrEnum):
+class TaskState(Enum):
     """Task execution states."""
 
     PENDING = "pending"
@@ -25,7 +36,7 @@ class TaskState(StrEnum):
     FAILED = "failed"
 
 
-@dataclass(slots=True)
+@dataclass
 class TaskProgress:
     """Progress update emitted during workflow execution."""
 
@@ -35,7 +46,7 @@ class TaskProgress:
     state: TaskState = TaskState.RUNNING
 
 
-@dataclass(slots=True)
+@dataclass
 class WorkflowArtifacts:
     """Artifacts accumulated across workflow steps."""
 
@@ -44,4 +55,3 @@ class WorkflowArtifacts:
     polished_image_path: str | None = None
     product_search_facts: list[str] = field(default_factory=list)
     product_search_summary: str | None = None
-

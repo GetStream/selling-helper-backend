@@ -2,6 +2,7 @@ from google import genai
 from google.genai import types
 
 from workflow.events import EventEmitter
+from workflow.models import ProductDetails
 
 
 class GoogleSearchClient:
@@ -19,17 +20,8 @@ class GoogleSearchClient:
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         self._config = types.GenerateContentConfig(
             tools=[grounding_tool],
-            response_json_schema=types.JsonSchema(
-                schema={
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "description": {"type": "string"},
-                        "specifications": {"type": "string"},
-                        "pricing": {"type": "string"},
-                    },
-                }
-            ),
+            response_mime_type="application/json",
+            response_json_schema=ProductDetails.model_json_schema(),
         )
 
     def perform_google_search(self, *, query: str) -> str:
@@ -39,5 +31,11 @@ class GoogleSearchClient:
             contents=query,
             config=self._config,
         )
-        print(response.model_dump(mode="json", exclude_none=False))
+        print(f"[GoogleSearchClient] Response: {response}")
+        print(f"[GoogleSearchClient] Response JSON: {response.model_dump(mode="json", exclude_none=False)}")
+
+        product_details = ProductDetails.model_validate_json(response.text)
+        self._event_emitter.emit_product_details(
+            product_details
+        )
         return response.text

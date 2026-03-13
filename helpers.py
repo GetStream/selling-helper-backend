@@ -28,13 +28,3 @@ def ensure_workflow_channel_is_created(
     client.upsert_user({"id": sender_user_id, "name": "Workflow Server"})
     channel.create(sender_user_id)
     return channel
-
-
-@dataclass
-class ProductDetails:
-    """Details of the searched product."""
-
-    name: str
-    description: str
-    specifications: str
-    pricing: str
