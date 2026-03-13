@@ -144,7 +144,9 @@ class StreamEventEmitter:
     ) -> dict[str, Any]:
         payload = {
             "type": "product-details",
-            "productDetails": product_details,
+            "productDetails": product_details.model_dump(
+                mode="json", exclude_none=False
+            ),
             "workflowId": self._context.workflow_id,
             "channelType": self._context.channel_type,
             "channelId": self._context.channel_id,
