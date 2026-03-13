@@ -19,6 +19,8 @@ import requests
 from dotenv import load_dotenv
 from stream_chat import StreamChat
 
+from helpers import ensure_workflow_channel_is_created
+
 load_dotenv()
 
 CHANNEL_TYPE = "messaging"
@@ -30,7 +32,9 @@ SENDER_USER = {"id": SENDER_USER_ID, "name": "Workflow Server"}
 def _require_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
-        pytest.skip(f"Missing required environment variable for live Stream test: {name}")
+        pytest.skip(
+            f"Missing required environment variable for live Stream test: {name}"
+        )
     return value
 
 
@@ -59,7 +63,7 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
     assert image_path.stat().st_size > 0, f"Image fixture is empty: {image_path}"
 
     client = StreamChat(api_key=api_key, api_secret=api_secret)
-    channel = client.channel(CHANNEL_TYPE, CHANNEL_ID, data={"name": "Workflow Image Attachment Live"})
+    channel = ensure_workflow_channel_is_created(client, channel_id=CHANNEL_ID)
     try:
         client.upsert_user(SENDER_USER)
         channel.create(SENDER_USER_ID)
@@ -73,7 +77,9 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
         pytest.skip(f"Live Stream test could not reach Stream API: {exc}")
 
     uploaded_asset_url = _extract_uploaded_asset_url(upload_response)
-    assert uploaded_asset_url, f"Could not determine uploaded image URL from response: {upload_response}"
+    assert uploaded_asset_url, (
+        f"Could not determine uploaded image URL from response: {upload_response}"
+    )
 
     message = {
         "text": "Live test message with polished product image attachment.",
@@ -89,12 +95,16 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
     try:
         send_response = channel.send_message(message, SENDER_USER_ID)
     except requests.RequestException as exc:
-        pytest.skip(f"Live Stream test could not send message due to network error: {exc}")
+        pytest.skip(
+            f"Live Stream test could not send message due to network error: {exc}"
+        )
 
     assert isinstance(send_response, dict)
     sent_message = send_response.get("message", send_response)
     assert isinstance(sent_message, dict)
-    assert sent_message.get("id"), f"Expected sent message id in response: {send_response}"
+    assert sent_message.get("id"), (
+        f"Expected sent message id in response: {send_response}"
+    )
     attachments = sent_message.get("attachments") or []
     assert attachments, f"Expected message attachments in response: {send_response}"
     first_attachment = attachments[0]

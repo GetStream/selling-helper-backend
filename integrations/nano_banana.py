@@ -60,7 +60,6 @@ class NanoBananaClient:
             model=model,
             timeout_seconds=timeout_seconds,
         )
-        self._ready_event = asyncio.Event()
 
     def _get_image_folder(self) -> str:
         """Get the path to the image folder."""
@@ -147,8 +146,6 @@ class NanoBananaClient:
         await self._event_emitter.emit_polished_image(
             product_shot_image_path, product_shot_image_mime
         )
-
-        self._ready_event.set()
 
         return "Product image was generated successfully"
 

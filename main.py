@@ -5,26 +5,28 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from google.genai import types
 from stream_chat import StreamChat
 from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
 
-from helpers import ProductDetails, build_channel_id, ensure_workflow_channel_is_created
+from helpers import ProductDetails
 from integrations.nano_banana import (
     NanoBananaClient,
     NanoBananaConfigurationError,
 )
-from processors.object_capture import ObjectCaptureProcessor
+from processors.object_capture import CaptureStatus, ObjectCaptureProcessor
 from workflow.events import (
     EventEmitter,
     StreamEventEmitter,
     WorkflowContext,
 )
-from workflow.orchestrator import OrchestratorConfig, TaskWorkflowOrchestrator
+from workflow.models import TaskId, TaskProgress
 
 load_dotenv()
 
@@ -75,25 +77,80 @@ def _get_object_capture_processor() -> ObjectCaptureProcessor:
     )
 
 
-def _get_stream_chat_client() -> StreamChat:
-    global _stream_chat_client
-    if _stream_chat_client is not None:
-        return _stream_chat_client
-
-    api_key = os.getenv("STREAM_API_KEY")
-    api_secret = os.getenv("STREAM_API_SECRET")
-    if not api_key or not api_secret:
-        raise RuntimeError(
-            "Stream Chat is not configured. Set STREAM_API_KEY and STREAM_API_SECRET."
-        )
-    _stream_chat_client = StreamChat(api_key=api_key, api_secret=api_secret)
-    return _stream_chat_client
-
-
 async def create_agent(**kwargs) -> Agent:
     """Create a realtime seller agent with MCP/function-calling support."""
-    # llm = gemini.Realtime(model="gemini-3.1-flash-audio-eap", fps=5)
-    llm = gemini.Realtime(fps=5)
+    llm = gemini.Realtime(
+        model="gemini-3.1-flash-audio-eap",
+        fps=5,
+        config=types.LiveConnectConfigDict(
+            thinking_config=types.ThinkingConfigDict(
+                thinking_level=types.ThinkingLevel.MINIMAL
+            )
+        ),
+    )
+    # llm = gemini.Realtime(fps=5)
+
+    @llm.register_function(
+        name="create_product_screenshot",
+        description="Create a product screenshot from user's video feed.",
+    )
+    async def create_product_screenshot() -> bytes:
+        print("[Main] create_product_screenshot()")
+        capture = _get_object_capture_processor()
+        event_emitter = _get_event_emitter()
+        await capture.update_capture_status(CaptureStatus.DETECTING)
+        await event_emitter.emit(
+            TaskProgress(
+                task_id=TaskId.DETECT_OBJECT,
+                progress=10,
+                message="Starting to analyze frames",
+            )
+        )
+        for attempt in range(4 + 1):
+            print(
+                f"[Main] Detecting object in frame, attempt {attempt + 1} / {5} (Processor: {capture.capture_status})"
+            )
+            ready = await capture.wait_until_ready(10.0)
+            if ready:
+                await event_emitter.emit(
+                    TaskProgress(
+                        task_id=TaskId.DETECT_OBJECT,
+                        progress=100,
+                        message="Object clearly detected in frame",
+                    )
+                )
+                await event_emitter.emit(
+                    TaskProgress(
+                        task_id=TaskId.CAPTURE_SCREENSHOT,
+                        progress=10,
+                        message="Capturing screenshot",
+                    )
+                )
+                print("[Orchestrator] Object clearly detected in frame")
+                await capture.update_capture_status(CaptureStatus.CAPTURING)
+                await capture.capture_best_frame(Path("artifacts"))
+                await capture.update_capture_status(CaptureStatus.INACTIVE)
+                await event_emitter.emit(
+                    TaskProgress(
+                        task_id=TaskId.CAPTURE_SCREENSHOT,
+                        progress=100,
+                        message="Screenshot captured",
+                    )
+                )
+                return "Successfully captured product screenshot."
+
+            else:
+                capture.min_ready_score -= 0.05
+
+            await event_emitter.emit(
+                TaskProgress(
+                    task_id=TaskId.DETECT_OBJECT,
+                    progress=min(85, 30 + (attempt * 20)),
+                    message="Still analyzing frames",
+                )
+            )
+        await capture.update_capture_status(CaptureStatus.INACTIVE)
+        return "Failed to capture product screenshot."
 
     @llm.register_function(
         name="nano_banana_polish",
@@ -159,9 +216,7 @@ async def create_agent(**kwargs) -> Agent:
         edge=getstream.Edge(),
         agent_user=User(name="Assistant", id="agent"),
         instructions=(
-            "You are a product-listing assistant. Guide the user to frame an item, "
-            "capture it, polish images via tools, research product info, and produce "
-            "a structured product description. Always answer in short, clear sentences."
+            "You are a product-listing assistant. Guide the user to follow @selling-helper.md"
         ),
         llm=llm,
         processors=[processor],
@@ -174,45 +229,46 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> Non
     await agent.authenticate()
     call = await agent.create_call(call_type, call_id)
     async with agent.join(call):
-        capture = _get_object_capture_processor()
-        stream_client = _get_stream_chat_client()
+        await agent.simple_response("Greet the user and ask them to start the process")
+        # capture = _get_object_capture_processor()
+        # stream_client = _get_stream_chat_client()
 
-        channel = await asyncio.to_thread(
-            ensure_workflow_channel_is_created,
-            stream_client,
-            channel_id=build_channel_id(call_id),
-        )
+        # channel = await asyncio.to_thread(
+        #     ensure_workflow_channel_is_created,
+        #     stream_client,
+        #     channel_id=build_channel_id(call_id),
+        # )
 
-        event_emitter = _get_event_emitter()
-        event_emitter.update_channel(channel)
+        # event_emitter = _get_event_emitter()
+        # event_emitter.update_channel(channel)
 
-        await event_emitter.emit_workflow_started()
-        nano_banana_client = _get_nano_banana_client()
+        # await event_emitter.emit_workflow_started()
+        # nano_banana_client = _get_nano_banana_client()
 
-        _orchestrator = TaskWorkflowOrchestrator(
-            agent=agent,
-            progress_emitter=event_emitter,
-            capture_processor=capture,
-            nano_banana_client=nano_banana_client,
-            config=OrchestratorConfig(),
-        )
-        try:
-            description = await _orchestrator.run()
-        except Exception as exc:
-            await event_emitter.emit_workflow_failed(
-                error_code=type(exc).__name__,
-                error_message=str(exc),
-            )
-            raise
+        # _orchestrator = TaskWorkflowOrchestrator(
+        #     agent=agent,
+        #     progress_emitter=event_emitter,
+        #     capture_processor=capture,
+        #     nano_banana_client=nano_banana_client,
+        #     config=OrchestratorConfig(),
+        # )
+        # try:
+        #     description = await _orchestrator.run()
+        # except Exception as exc:
+        #     await event_emitter.emit_workflow_failed(
+        #         error_code=type(exc).__name__,
+        #         error_message=str(exc),
+        #     )
+        #     raise
 
-        await event_emitter.emit_workflow_completed(
-            result_summary=f"{description.title} ({description.confidence:.2f})"
-        )
-        await agent.simple_response(
-            "Product page draft is ready. "
-            f"Title: {description.title}. "
-            f"Confidence: {description.confidence:.2f}."
-        )
+        # await event_emitter.emit_workflow_completed(
+        #     result_summary=f"{description.title} ({description.confidence:.2f})"
+        # )
+        # await agent.simple_response(
+        #     "Product page draft is ready. "
+        #     f"Title: {description.title}. "
+        #     f"Confidence: {description.confidence:.2f}."
+        # )
         await agent.finish()
 
 

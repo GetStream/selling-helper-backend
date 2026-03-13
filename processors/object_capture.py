@@ -81,18 +81,18 @@ class ObjectCaptureProcessor(VideoProcessor):
         self.capture_status = capture_status
 
     async def _handle_frame(self, frame: av.VideoFrame) -> None:
-        print(
-            f"[ObjectCaptureProcessor] Handling frame (Capture status: {self.capture_status})"
-        )
+        # print(
+        #     f"[ObjectCaptureProcessor] Handling frame (Capture status: {self.capture_status})"
+        # )
         # If the capture is inactive, skip frame analysis.
         if self.capture_status == CaptureStatus.INACTIVE:
-            print(
-                "[ObjectCaptureProcessor] Capture is inactive, skipping frame analysis"
-            )
+            # print(
+            #     "[ObjectCaptureProcessor] Capture is inactive, skipping frame analysis"
+            # )
             return
 
         if self.capture_status == CaptureStatus.DETECTING:
-            print("[ObjectCaptureProcessor] Analyzing frame")
+            # print("[ObjectCaptureProcessor] Analyzing frame")
             score, guidance = self._analyze_frame(frame)
             self._latest_guidance = guidance
 

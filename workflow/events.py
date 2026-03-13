@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from helpers import ProductDetails
+from stream_chat import StreamChat
+
+from helpers import ProductDetails, ensure_workflow_channel_is_created
 from workflow.models import TaskProgress
 
 logger = logging.getLogger(__name__)
@@ -47,7 +50,18 @@ class StreamEventEmitter:
         context: WorkflowContext,
         strict: bool = False,
     ) -> None:
-        self._channel = channel
+        api_key = os.getenv("STREAM_API_KEY")
+        api_secret = os.getenv("STREAM_API_SECRET")
+        if not api_key or not api_secret:
+            raise RuntimeError(
+                "Stream Chat is not configured. Set STREAM_API_KEY and STREAM_API_SECRET."
+            )
+        stream_chat_client = StreamChat(api_key=api_key, api_secret=api_secret)
+
+        self._channel = ensure_workflow_channel_is_created(
+            client=stream_chat_client,
+            channel_id="workflow-7430192471",
+        )
         self._context = context
         self._strict = strict
 
@@ -111,18 +125,15 @@ class StreamEventEmitter:
         self, image_path: str, image_mime_type: str
     ) -> dict[str, Any]:
         """Emit a polished image event to the channel."""
-        if self._channel is None:
-            raise ValueError("Channel is not set")
-
         print(
             f"[StreamTaskProgressEmitter] Emitting polished image: {image_path} with mime type: {image_mime_type} to channel: {self._context.channel_type}:{self._context.channel_id} sender: {self._context.sender_user_id}"
         )
 
+        SENDER_USER_ID = "workflow-server"
+        SENDER_USER = {"id": SENDER_USER_ID, "name": "Workflow Server"}
+
         upload_response = self._channel.send_image(
-            image_path,
-            image_path,
-            {"id": "workflow-server"},
-            content_type=image_mime_type,
+            image_path, image_path, SENDER_USER, content_type="image/png"
         )
 
         print(f"[StreamTaskProgressEmitter] Upload response: {upload_response}")
@@ -159,6 +170,7 @@ class StreamEventEmitter:
             self._context.sender_user_id,
             payload,
         )
+        self._channel.send_event()
         try:
             await asyncio.to_thread(
                 self._channel.send_event,

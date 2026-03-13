@@ -30,7 +30,7 @@ def ensure_workflow_channel_is_created(
     return channel
 
 
-@dataclass(slots=True)
+@dataclass
 class ProductDetails:
     """Details of the searched product."""
 
