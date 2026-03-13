@@ -12,7 +12,7 @@ wheels/
 # Environment variables
 .env
 
-DS_Store
+.DS_Store
 
 # Artifacts
 artifacts/

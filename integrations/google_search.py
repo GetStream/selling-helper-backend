@@ -24,7 +24,7 @@ class GoogleSearchClient:
             response_json_schema=ProductDetails.model_json_schema(),
         )
 
-    def perform_google_search(self, *, query: str) -> str:
+    async def perform_google_search(self, *, query: str) -> ProductDetails:
         """Perform a Google Search and return the results."""
         response = self._client.models.generate_content(
             model=self._model,
@@ -53,5 +53,5 @@ class GoogleSearchClient:
         )
 
         product_details = ProductDetails.model_validate_json(response.text)
-        self._event_emitter.emit_product_details(product_details)
-        return response.text
+        await self._event_emitter.emit_product_details(product_details)
+        return product_details
