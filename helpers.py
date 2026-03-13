@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +13,19 @@ def get_date_and_time_now() -> str:
 def build_channel_id(call_id: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in call_id)
     return f"workflow-{safe}"
+
+
+def get_stream_call_api() -> str:
+    call_id = os.getenv("STREAM_CALL_API", "").strip()
+    if not call_id:
+        raise RuntimeError(
+            "Stream workflow call is not configured. Set STREAM_CALL_API."
+        )
+    return call_id
+
+
+def get_stream_workflow_channel_id() -> str:
+    return build_channel_id(get_stream_call_api())
 
 
 def ensure_workflow_channel_is_created(

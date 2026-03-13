@@ -19,17 +19,19 @@ import requests
 from dotenv import load_dotenv
 from stream_chat import StreamChat
 
-from helpers import ensure_workflow_channel_is_created
+from helpers import (
+    ensure_workflow_channel_is_created,
+    get_stream_call_api,
+    get_stream_workflow_channel_id,
+)
 from workflow.events import StreamEventEmitter, WorkflowContext
 from workflow.models import ProductDetails
 
 load_dotenv()
 
 CHANNEL_TYPE = "messaging"
-# Keep this aligned with the current StreamEventEmitter constructor, which
-# always creates/uses this workflow channel internally.
-CHANNEL_ID = "workflow-7430192471"
-WORKFLOW_ID = "7430192471"
+CHANNEL_ID = get_stream_workflow_channel_id()
+WORKFLOW_ID = get_stream_call_api()
 SENDER_USER_ID = "workflow-server"
 
 

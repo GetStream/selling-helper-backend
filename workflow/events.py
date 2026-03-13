@@ -76,7 +76,7 @@ class StreamEventEmitter:
 
         self._channel = ensure_workflow_channel_is_created(
             client=stream_chat_client,
-            channel_id="workflow-7430192471",
+            channel_id=context.channel_id,
         )
         self._context = context
         self._strict = strict

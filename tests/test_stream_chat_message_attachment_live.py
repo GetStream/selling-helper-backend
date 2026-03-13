@@ -19,13 +19,18 @@ import requests
 from dotenv import load_dotenv
 from stream_chat import StreamChat
 
-from helpers import ensure_workflow_channel_is_created
+from helpers import (
+    ensure_workflow_channel_is_created,
+    get_stream_call_api,
+    get_stream_workflow_channel_id,
+)
 from workflow.events import StreamEventEmitter, WorkflowContext
 
 load_dotenv()
 
 CHANNEL_TYPE = "messaging"
-CHANNEL_ID = "workflow-7430192471"
+WORKFLOW_ID = get_stream_call_api()
+CHANNEL_ID = get_stream_workflow_channel_id()
 SENDER_USER_ID = "workflow-server"
 
 
@@ -52,9 +57,9 @@ def test_stream_live_sends_chat_message_with_image_attachment() -> None:
     event_emitter = StreamEventEmitter(
         channel=channel,
         context=WorkflowContext(
-            workflow_id="7430192471",
+            workflow_id=WORKFLOW_ID,
             channel_type="messaging",
-            channel_id="workflow-7430192471",
+            channel_id=CHANNEL_ID,
             sender_user_id="workflow-server",
         ),
         strict=True,

@@ -13,6 +13,7 @@ from vision_agents.core import Agent, AgentLauncher, Runner, User
 from vision_agents.core.runner.http.options import ServeOptions
 from vision_agents.plugins import gemini, getstream
 
+from helpers import get_stream_call_api, get_stream_workflow_channel_id
 from integrations.google_search import GoogleSearchClient
 from integrations.nano_banana import (
     NanoBananaClient,
@@ -55,9 +56,9 @@ def _get_event_emitter() -> EventEmitter:
     _event_emitter = StreamEventEmitter(
         channel=None,
         context=WorkflowContext(
-            workflow_id="7430192471",
+            workflow_id=get_stream_call_api(),
             channel_type="messaging",
-            channel_id="workflow-7430192471",
+            channel_id=get_stream_workflow_channel_id(),
             sender_user_id="workflow-server",
         ),
     )
