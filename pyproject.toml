@@ -10,7 +10,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "python-dotenv>=1.2.1",
     "stream-chat>=4.31.0",
-    "vision-agents[gemini,getstream]>=0.4.2",
+    "vision-agents[gemini,getstream]>=0.6.9",
 ]
 
 [project.optional-dependencies]
@@ -18,8 +18,3 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
 ]
-
-[tool.uv.sources]
-vision-agents = { path = "../../../SDK/agents-repos/Vision-Agents/agents-core", editable = true }
-vision-agents-plugins-getstream = { path = "../../../SDK/agents-repos/Vision-Agents/plugins/getstream", editable = true }
-vision-agents-plugins-gemini = { path = "../../../SDK/agents-repos/Vision-Agents/plugins/gemini", editable = true }
